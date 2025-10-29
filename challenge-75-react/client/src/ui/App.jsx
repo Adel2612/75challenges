@@ -8,6 +8,7 @@ import Settings from './Settings.jsx'
 import Ascetics from './Ascetics.jsx'
 import AuthModal from './AuthModal.jsx'
 import SharePublic from './SharePublic.jsx'
+import Friends from './Friends.jsx'
 
 const defaultKeys = ['wo1','wo2','diet','water','read','photo']
 
@@ -35,11 +36,25 @@ export default function App() {
     }
   }
 
-  useEffect(() => { load() }, [])
-  // Load current user once and apply theme
-  useEffect(() => { (async()=>{ try { const r = await api.auth.me(); setUser(r.user||null); if (r.user?.theme) applyTheme(r.user.theme) } catch {} })() }, [])
-  // Reload state when user identity changes (login/logout)
-  useEffect(() => { const id = user?.id || ''; load() }, [user?.id])
+  // Bootstrap: restore session first, then load state
+  useEffect(() => {
+    (async()=>{
+      try {
+        setLoading(true)
+        setError('')
+        const me = await api.auth.me()
+        const u = me.user || null
+        setUser(u)
+        if (u?.theme) applyTheme(u.theme)
+        const s = await api.state()
+        setState(s)
+      } catch (e) {
+        setError('Не удалось загрузить данные')
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [])
 
   useEffect(()=>{ document.documentElement.setAttribute('data-theme', theme) }, [theme])
 
@@ -88,7 +103,7 @@ export default function App() {
     <div className="container">
       <header>
         <h1>Челлендж 75 Сложных Дней</h1>
-        <AuthModal user={user} onAuthChange={(u)=>{ setUser(u); if (u?.theme) applyTheme(u.theme) }} />
+        <AuthModal user={user} onAuthChange={async (u)=>{ setUser(u); if (u?.theme) applyTheme(u.theme); await load() }} />
         {stats && (
           <div className="muted" style={{marginTop:8}}>
             Прогресс: {stats.percent}% | Задач: {stats.tasksDone}/{stats.tasksTotal} | Дней закрыто: {stats.fullDays}/75
@@ -102,6 +117,7 @@ export default function App() {
           <div className={"tab" + (tab==='reports'?' active':'')} onClick={()=>setTab('reports')}>Отчёты (каждые 15 дней)</div>
           <div className={"tab" + (tab==='settings'?' active':'')} onClick={()=>setTab('settings')}>Настройки</div>
           <div className={"tab" + (tab==='ascetic'?' active':'')} onClick={()=>setTab('ascetic')}>Аскеза</div>
+          <div className={"tab" + (tab==='friends'?' active':'')} onClick={()=>setTab('friends')}>Друзья</div>
         </div>
       </header>
 
@@ -149,6 +165,12 @@ export default function App() {
       {tab==='ascetic' && (
         <section style={{marginTop:16}}>
           <Ascetics />
+        </section>
+      )}
+
+      {tab==='friends' && (
+        <section style={{marginTop:16}}>
+          <Friends />
         </section>
       )}
 

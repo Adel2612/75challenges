@@ -152,6 +152,37 @@ app.get('/api/share/:token/attachment/:id', async (req, res) => {
   fs.createReadStream(row.path).pipe(res)
 })
 
+// ---- Users search and inbox (in‑app sharing) ----
+app.get('/api/users/search', requireAuth, async (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase()
+  if (!q) return res.json([])
+  const rows = await all(`SELECT id, email, name FROM users WHERE lower(email) LIKE ? OR lower(name) LIKE ? LIMIT 20`, [`%${q}%`, `%${q}%`])
+  res.json(rows.filter(u => u.id !== req.user.id))
+})
+
+app.get('/api/inbox', requireAuth, async (req, res) => {
+  const rows = await all(`SELECT id, from_user_id, type, payload, created_at, read FROM inbox WHERE to_user_id = ? ORDER BY created_at DESC LIMIT 100`, [req.user.id])
+  res.json(rows)
+})
+
+app.post('/api/inbox/:id/read', requireAuth, async (req, res) => {
+  await run(`UPDATE inbox SET read = 1 WHERE id = ? AND to_user_id = ?`, [req.params.id, req.user.id])
+  res.json({ ok: true })
+})
+
+app.post('/api/share/send', requireAuth, async (req, res) => {
+  const { to_user_id, token, message } = req.body || {}
+  if (!to_user_id || !token) return res.status(400).json({ error: 'bad_payload' })
+  const link = await get(`SELECT token FROM share_links WHERE token = ? AND user_id = ?`, [token, req.user.id])
+  if (!link) return res.status(404).json({ error: 'share_not_found' })
+  const id = crypto.randomUUID()
+  const payload = JSON.stringify({ token, message: message || '' })
+  await run(`INSERT INTO inbox(id, to_user_id, from_user_id, type, payload, created_at, read) VALUES(?,?,?,?,?, ?, 0)`, [
+    id, to_user_id, req.user.id, 'share', payload, new Date().toISOString()
+  ])
+  res.json({ ok: true })
+})
+
 // Avatar upload and serve
 const avatarStorage = multer.diskStorage({
   destination: (req, file, cb) => {

@@ -173,6 +173,15 @@ export async function ensureSchema() {
     created_at TEXT NOT NULL,
     expires_at TEXT
   );`)
+  await run(`CREATE TABLE IF NOT EXISTS inbox (
+    id TEXT PRIMARY KEY,
+    to_user_id TEXT NOT NULL,
+    from_user_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    read INTEGER NOT NULL DEFAULT 0
+  );`)
 
   // Seed tasks rows for 75 days x 6 keys if missing
   const defaultTypes = [

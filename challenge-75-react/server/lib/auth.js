@@ -23,12 +23,16 @@ export function signToken(user) {
 
 export function setAuthCookie(res, token) {
   const isProd = process.env.NODE_ENV === 'production'
+  const sameSite = (process.env.COOKIE_SAMESITE || 'lax').toLowerCase()
+  const cookieDomain = process.env.COOKIE_DOMAIN || undefined
+  const secure = isProd || sameSite === 'none'
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: isProd,
+    sameSite: sameSite === 'none' ? 'none' : (sameSite === 'strict' ? 'strict' : 'lax'),
+    secure,
     maxAge: 30 * 24 * 60 * 60 * 1000,
     path: '/',
+    domain: cookieDomain,
   })
 }
 
@@ -53,4 +57,3 @@ export function requireAuth(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'unauthorized' })
   next()
 }
-

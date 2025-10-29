@@ -15,6 +15,7 @@ body{margin:0;background:
 .btn:hover{border-color:var(--accent)}
 .danger{background:linear-gradient(180deg,var(--btn-danger-bg1),var(--btn-danger-bg2));color:#fff;border-color:transparent}
 .tabs{display:flex;gap:8px;margin-top:12px}
+.tabs{overflow:auto;scrollbar-width:thin}
 .tab{padding:8px 12px;border-radius:999px;border:1px solid var(--border);background:#fff;color:var(--muted);cursor:pointer}
 .tab.active{color:#fff;background:linear-gradient(180deg,var(--accent),var(--accent2));border-color:transparent}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
@@ -40,4 +41,7 @@ body{margin:0;background:
 @media(max-width:520px){
   .grid{grid-template-columns:1fr}
   .tasks{grid-template-columns:1fr}
+  h1{font-size:20px}
+  .container{margin:16px auto}
+  .btn{padding:8px 12px}
 }

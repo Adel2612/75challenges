@@ -1,5 +1,8 @@
 // Use explicit API url only if provided; otherwise use same-origin relative paths
 const API = (import.meta.env && import.meta.env.VITE_API_URL && String(import.meta.env.VITE_API_URL).trim()) || ''
+export const API_BASE = API
+
+export function buildUrl(path){ return API + path }
 
 async function req(path, opts={}) {
   const r = await fetch(API + path, { credentials: 'include', ...opts })

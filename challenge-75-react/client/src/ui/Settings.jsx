@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { api } from '../api'
+import { api, API_BASE } from '../api'
 import ThemePicker from './ThemePicker.jsx'
 
 export default function Settings({ onChanged, state }) {
@@ -49,10 +49,10 @@ export default function Settings({ onChanged, state }) {
       <div className="title" style={{marginTop:16}}>Аватар</div>
       <div className="row" style={{gap:12, alignItems:'center'}}>
         <div style={{width:48,height:48,borderRadius:'50%',overflow:'hidden',border:'1px solid var(--border)'}}>
-          <img src={`/api/user/avatar/me?${avatarVer}`} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={(e)=>{ e.currentTarget.style.display='none' }} />
+          <img src={`${API_BASE}/api/user/avatar/me?${avatarVer}`} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={(e)=>{ e.currentTarget.style.display='none' }} />
         </div>
         <label className="btn">Загрузить
-          <input type="file" accept="image/*" hidden onChange={async e=>{ const f=e.target.files?.[0]; if(!f) return; const fd=new FormData(); fd.append('file', f); await fetch('/api/user/avatar',{method:'POST',body:fd,credentials:'include'}); setAvatarVer(v=>v+1); e.target.value='' }} />
+          <input type="file" accept="image/*" hidden onChange={async e=>{ const f=e.target.files?.[0]; if(!f) return; const fd=new FormData(); fd.append('file', f); await fetch(`${API_BASE}/api/user/avatar`,{method:'POST',body:fd,credentials:'include'}); setAvatarVer(v=>v+1); e.target.value='' }} />
         </label>
       </div>
 
