@@ -1,0 +1,183 @@
+DECLARE @assessmentCategoryID BIGINT = 7561807043727649222;
+
+;WITH answers AS (
+    SELECT 
+        tls.id AS test_learning_session_id,
+        tls.assessment_id,
+        tls.assessment_name,
+        tls.person_id,
+        tls.person_fullname,
+        i.id AS item_id,
+        its.code AS item_code,
+        chosen.chosen_answer_code,
+        sub.answer_order,
+        sub.answer_text
+    FROM test_learnings tls
+    JOIN test_learning tl ON tl.id = tls.id
+    JOIN assessments a ON a.id = tls.assessment_id
+    CROSS APPLY a.role_id.nodes('/role_id') AS R(c)
+    CROSS APPLY (SELECT TRY_CAST(CAST(tl.data AS NVARCHAR(MAX)) AS XML)) AS X(xml_data)
+    CROSS APPLY X.xml_data.nodes('/test_learning/objects/object/data/items/item') AS It(itemNode)
+    JOIN item i ON i.id = It.itemNode.value('(ident/text())[1]', 'bigint')
+    JOIN items its ON i.id = its.id
+    CROSS APPLY (
+        SELECT SUBSTRING(
+            REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                LTRIM(RTRIM(It.itemNode.value('(attempts/attempt/text())[1]', 'nvarchar(max)'))),
+                CHAR(160), ''), CHAR(9), ''), CHAR(13), ''), CHAR(10), ''), ' ', ''
+            ),
+            CHARINDEX('_', LTRIM(RTRIM(It.itemNode.value('(attempts/attempt/text())[1]', 'nvarchar(max)'))), 
+                CHARINDEX('_', LTRIM(RTRIM(It.itemNode.value('(attempts/attempt/text())[1]', 'nvarchar(max)'))) ) + 1) + 1,
+            LEN(LTRIM(RTRIM(It.itemNode.value('(attempts/attempt/text())[1]', 'nvarchar(max)'))))
+        ) AS chosen_answer_code
+    ) AS chosen
+    CROSS APPLY (
+        SELECT TOP (1) rn.answer_order, rn.answer_text, rn.answer_code
+        FROM (
+            SELECT 
+                ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS answer_order,
+                ansNode.value('(id)[1]', 'nvarchar(50)') AS answer_code,
+                LTRIM(RTRIM(ansNode.value('(text)[1]', 'nvarchar(400)'))) AS answer_text
+            FROM i.data.nodes('/item/answers/answer') AS A(ansNode)
+        ) rn
+        WHERE rn.answer_code = chosen.chosen_answer_code
+    ) AS sub
+    WHERE R.c.value('.', 'bigint') = @assessmentCategoryID
+)
+, scored AS (
+    SELECT
+        a.test_learning_session_id,  -- Добавляем session_id
+        a.person_id, a.person_fullname, a.assessment_id, a.assessment_name, a.item_code,
+        TRY_CAST(a.answer_order AS INT) AS raw_value,
+        CASE WHEN RIGHT(a.item_code,2) = '_R' THEN 1 ELSE 0 END AS is_rev,
+        CASE 
+            WHEN TRY_CAST(a.answer_order AS INT) IS NULL THEN NULL
+            WHEN RIGHT(a.item_code,2) = '_R' THEN 6 - TRY_CAST(a.answer_order AS INT)
+            ELSE TRY_CAST(a.answer_order AS INT)
+        END AS value_used,
+        CASE 
+            WHEN TRY_CAST(a.answer_order AS INT) IS NULL THEN NULL
+            WHEN RIGHT(a.item_code,2) = '_R' THEN ((6.0 - TRY_CAST(a.answer_order AS INT) - 1.0)/4.0)*100.0
+            ELSE ((TRY_CAST(a.answer_order AS INT) - 1.0)/4.0)*100.0
+        END AS score_0_100
+    FROM answers a
+)
+, scales AS (
+    SELECT 
+        s.test_learning_session_id,  -- Добавляем session_id
+        s.person_id, s.person_fullname, s.assessment_id, s.assessment_name, s.item_code, s.score_0_100, mm.subscale
+    FROM scored s
+    CROSS APPLY (
+        SELECT CASE
+                 WHEN UPPER(REPLACE(REPLACE(LTRIM(RTRIM(COALESCE(s.item_code,''))), ' ', ''), CHAR(160), '')) LIKE '%[_]R' 
+                 THEN LEFT(UPPER(REPLACE(REPLACE(LTRIM(RTRIM(COALESCE(s.item_code,''))), ' ', ''), CHAR(160), '')), 
+                          LEN(UPPER(REPLACE(REPLACE(LTRIM(RTRIM(COALESCE(s.item_code,''))), ' ', ''), CHAR(160), '')))-2)
+                 ELSE UPPER(REPLACE(REPLACE(LTRIM(RTRIM(COALESCE(s.item_code,''))), ' ', ''), CHAR(160), ''))
+               END AS base_code
+    ) b
+    OUTER APPLY (
+        SELECT TOP (1) m.code AS subscale
+        FROM (VALUES
+            ('TRUST'),('ADMIN'),('FAIR'),('GROW'),('MREL'),
+            ('FLEX'),('TEAM'),('SAFE'),('FIT'),('REC'),
+            ('MOB'),('CY'),('EF'),('OLI'),('INT'),('AT'),('EX')
+        ) AS m(code)
+        WHERE RIGHT(b.base_code, LEN(m.code)) = m.code
+        ORDER BY LEN(m.code) DESC
+    ) mm
+)
+, avg_scales AS (
+    SELECT 
+        test_learning_session_id,  -- Добавляем session_id
+        person_id, person_fullname, assessment_id, assessment_name, subscale, AVG(score_0_100) AS avg_score
+    FROM scales
+    WHERE subscale IS NOT NULL
+    GROUP BY test_learning_session_id, person_id, person_fullname, assessment_id, assessment_name, subscale  -- Добавляем в GROUP BY
+)
+, aggregated AS (
+    SELECT
+        test_learning_session_id,  -- Добавляем session_id
+        person_id, person_fullname, assessment_id, assessment_name,
+        MAX(CASE WHEN subscale='EX'   THEN avg_score END) AS EX,
+        MAX(CASE WHEN subscale='CY'   THEN avg_score END) AS CY,
+        MAX(CASE WHEN subscale='EF'   THEN avg_score END) AS EF,
+        MAX(CASE WHEN subscale='OLI'  THEN avg_score END) AS OLI,
+        MAX(CASE WHEN subscale='INT'  THEN avg_score END) AS INT,
+        MAX(CASE WHEN subscale='AT'   THEN avg_score END) AS AT,
+        MAX(CASE WHEN subscale='FAIR' THEN avg_score END) AS FAIR,
+        MAX(CASE WHEN subscale='GROW' THEN avg_score END) AS GROW,
+        MAX(CASE WHEN subscale='MREL' THEN avg_score END) AS MREL,
+        MAX(CASE WHEN subscale='TRUST' THEN avg_score END) AS TRUST,
+        MAX(CASE WHEN subscale='REC'  THEN avg_score END) AS REC,
+        MAX(CASE WHEN subscale='FLEX' THEN avg_score END) AS FLEX,
+        MAX(CASE WHEN subscale='FIT'  THEN avg_score END) AS FIT,
+        MAX(CASE WHEN subscale='TEAM' THEN avg_score END) AS TEAM,
+        MAX(CASE WHEN subscale='ADMIN' THEN avg_score END) AS ADMIN,
+        MAX(CASE WHEN subscale='SAFE' THEN avg_score END) AS SAFE,
+        MAX(CASE WHEN subscale='MOB'  THEN avg_score END) AS MOB
+    FROM avg_scales
+    GROUP BY test_learning_session_id, person_id, person_fullname, assessment_id, assessment_name  -- Добавляем в GROUP BY
+)
+, calculated AS (
+    SELECT 
+       
+        ag.*,
+        -- Предвычисляем PROT
+        CASE
+            WHEN (CASE WHEN ag.FAIR IS NULL THEN 0 ELSE 1 END) +
+                 (CASE WHEN ag.GROW IS NULL THEN 0 ELSE 1 END) +
+                 (CASE WHEN ag.MREL IS NULL THEN 0 ELSE 1 END) +
+                 (CASE WHEN ag.TRUST IS NULL THEN 0 ELSE 1 END) +
+                 (CASE WHEN ag.REC IS NULL THEN 0 ELSE 1 END) +
+                 (CASE WHEN ag.FLEX IS NULL THEN 0 ELSE 1 END) +
+                 (CASE WHEN ag.FIT IS NULL THEN 0 ELSE 1 END) +
+                 (CASE WHEN ag.TEAM IS NULL THEN 0 ELSE 1 END) +
+                 (CASE WHEN ag.ADMIN IS NULL THEN 0 ELSE 1 END) +
+                 (CASE WHEN ag.SAFE IS NULL THEN 0 ELSE 1 END) +
+                 (CASE WHEN ag.MOB IS NULL THEN 0 ELSE 1 END) = 0
+            THEN NULL
+            ELSE (COALESCE(ag.FAIR,0) + COALESCE(ag.GROW,0) + COALESCE(ag.MREL,0) + COALESCE(ag.TRUST,0) +
+                  COALESCE(ag.REC,0) + COALESCE(ag.FLEX,0) + COALESCE(ag.FIT,0) + COALESCE(ag.TEAM,0) +
+                  COALESCE(ag.ADMIN,0) + COALESCE(ag.SAFE,0) + COALESCE(ag.MOB,0)) / 
+                 NULLIF((CASE WHEN ag.FAIR IS NULL THEN 0 ELSE 1 END) +
+                        (CASE WHEN ag.GROW IS NULL THEN 0 ELSE 1 END) +
+                        (CASE WHEN ag.MREL IS NULL THEN 0 ELSE 1 END) +
+                        (CASE WHEN ag.TRUST IS NULL THEN 0 ELSE 1 END) +
+                        (CASE WHEN ag.REC IS NULL THEN 0 ELSE 1 END) +
+                        (CASE WHEN ag.FLEX IS NULL THEN 0 ELSE 1 END) +
+                        (CASE WHEN ag.FIT IS NULL THEN 0 ELSE 1 END) +
+                        (CASE WHEN ag.TEAM IS NULL THEN 0 ELSE 1 END) +
+                        (CASE WHEN ag.ADMIN IS NULL THEN 0 ELSE 1 END) +
+                        (CASE WHEN ag.SAFE IS NULL THEN 0 ELSE 1 END) +
+                        (CASE WHEN ag.MOB IS NULL THEN 0 ELSE 1 END), 0)
+        END AS PROT,
+        -- Предвычисляем BRI
+        CASE
+            WHEN ag.EX IS NULL OR ag.CY IS NULL OR ag.EF IS NULL THEN NULL
+            ELSE 0.5*(100.0 - ag.EX) + 0.35*ag.CY + 0.15*(100.0 - ag.EF)
+        END AS BRI
+    FROM aggregated ag
+)
+
+SELECT
+    c.test_learning_session_id,  -- Выводим session_id для идентификации
+    c.person_fullname,
+    c.assessment_name,
+    JSON_QUERY((
+        SELECT
+            ROUND(c.EX,1) AS EX,     ROUND(c.CY,1) AS CY,     ROUND(c.EF,1) AS EF,
+            ROUND(c.INT,1) AS INT,   ROUND(c.AT,1) AS AT,     ROUND(c.OLI,1) AS OLI,
+            ROUND(c.FAIR,1) AS FAIR, ROUND(c.GROW,1) AS GROW, ROUND(c.MREL,1) AS MREL,
+            ROUND(c.TRUST,1) AS TRUST, ROUND(c.REC,1) AS REC, ROUND(c.FLEX,1) AS FLEX,
+            ROUND(c.FIT,1) AS FIT,   ROUND(c.TEAM,1) AS TEAM, ROUND(c.ADMIN,1) AS ADMIN,
+            ROUND(c.SAFE,1) AS SAFE, ROUND(c.MOB,1) AS MOB,
+            ROUND(c.PROT,1) AS PROT,
+            ROUND(c.BRI,1) AS BRI,
+            CASE
+                WHEN c.INT IS NULL OR c.AT IS NULL OR c.BRI IS NULL OR c.PROT IS NULL THEN NULL
+                ELSE ROUND(0.35*(100.0 - c.INT) + 0.25*c.AT + 0.20*c.BRI + 0.20*(100.0 - c.PROT), 1)
+            END AS ARI_raw
+        FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+    )) AS metrics
+FROM calculated c
+ORDER BY c.person_fullname, c.assessment_name, c.test_learning_session_id;  -- Добавляем session_id в сортировку

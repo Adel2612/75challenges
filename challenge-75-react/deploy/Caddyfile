@@ -1,0 +1,11 @@
+# Replace example.com with your domain. Caddy will get/renew Let's Encrypt certs automatically.
+example.com {
+    encode gzip
+    reverse_proxy app:4000
+}
+
+# Optional: redirect www to root
+www.example.com {
+    redir https://example.com{uri}
+}
+

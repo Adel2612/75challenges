@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Челлендж 75 Сложных Дней</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="container">
+      <h1>Челлендж 75 Сложных Дней</h1>
+      <p class="subtitle">Отмечайте ежедневные задачи, прогресс сохраняется автоматически.</p>
+      <div class="controls">
+        <button id="resetAll" class="btn danger" title="Сбросить всё">Сбросить</button>
+        <button id="exportData" class="btn" title="Экспорт прогресса">Экспорт</button>
+        <label class="import-label btn">
+          Импорт
+          <input id="importData" type="file" accept="application/json" hidden />
+        </label>
+      </div>
+      <div id="stats" class="stats"></div>
+    </header>
+
+    <main class="container">
+      <section class="legend">
+        <h2>Ежедневные задачи</h2>
+        <ul>
+          <li>Тренировка 1 (45 мин)</li>
+          <li>Тренировка 2 (на улице, 45 мин)</li>
+          <li>Питание по плану (без читмилов и алкоголя)</li>
+          <li>Вода: 3.8 л (1 галлон)</li>
+          <li>Чтение 10 страниц</li>
+          <li>Фото прогресса</li>
+        </ul>
+      </section>
+
+      <section>
+        <div id="daysGrid" class="grid"></div>
+      </section>
+
+      <section class="goals">
+        <div class="goals-header">
+          <h2>Цели</h2>
+          <div class="goals-actions">
+            <input id="newGoalTitle" class="input" placeholder="Новая цель..." />
+            <input id="newGoalDue" class="input" type="date" />
+            <button id="addGoal" class="btn">Добавить</button>
+          </div>
+        </div>
+        <div id="goalsList" class="goals-list"></div>
+      </section>
+    </main>
+
+    <footer class="container foot">
+      <small>
+        Подсказка: клик по номеру дня открывает быстрое заполнение всех задач.
+      </small>
+    </footer>
+
+    <div id="details" class="details hidden">
+      <div class="details-card">
+        <div class="details-head">
+          <div id="detailsTitle" class="details-title">День</div>
+          <button id="detailsClose" class="btn">Закрыть</button>
+        </div>
+
+        <div class="details-grid">
+          <div class="details-block">
+            <label class="block-label">Заметка</label>
+            <textarea id="noteInput" class="input" rows="5" placeholder="Как прошёл день..."></textarea>
+          </div>
+
+          <div class="details-block">
+            <label class="block-label">Вес (кг)</label>
+            <input id="weightInput" class="input" type="number" step="0.1" placeholder="Например: 72.5" />
+            <div id="weightStats" class="muted"></div>
+          </div>
+
+          <div class="details-block">
+            <label class="block-label">Вложения</label>
+            <div class="attach-actions">
+              <label class="btn">Прикрепить файл<input id="attachInput" type="file" hidden multiple /></label>
+            </div>
+            <div id="attachList" class="attach-list"></div>
+            <div class="muted small">Вложения сохраняются локально (IndexedDB). Экспорт JSON их не включает.</div>
+          </div>
+        </div>
+
+        <div class="details-foot">
+          <button id="saveDetails" class="btn">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+  </html>

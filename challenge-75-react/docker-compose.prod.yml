@@ -1,0 +1,30 @@
+version: "3.8"
+services:
+  app:
+    build: .
+    container_name: challenge75_app
+    restart: unless-stopped
+    expose:
+      - "4000"
+    volumes:
+      - ./server/data:/app/server/data
+      - ./server/uploads:/app/server/uploads
+
+  caddy:
+    image: caddy:2
+    container_name: challenge75_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
+

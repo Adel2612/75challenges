@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: challenge-75
+    env: node
+    rootDir: challenge-75-react/server
+    buildCommand: |
+      cd ../client && npm ci && npm run build && cd ../server && npm ci
+    startCommand: node index.js
+    plan: free
+
