@@ -1,7 +1,7 @@
-:root,[data-theme="pink"]{--bg:#fff9fb;--panel:#ffffff;--text:#3b2b35;--muted:#8f7181;--accent:#ff66a6;--accent2:#b86cff;--border:#f0d6e0;--danger:#ff5b7a;--shadow:0 10px 24px rgba(255,102,166,.15)}
-[data-theme="light"]{--bg:#f7f8fa;--panel:#ffffff;--text:#1f2430;--muted:#5c6b80;--accent:#3b82f6;--accent2:#22c55e;--border:#e6e8ee;--danger:#ef4444;--shadow:0 10px 24px rgba(59,130,246,.12)}
-[data-theme="blue"]{--bg:#f5f8ff;--panel:#ffffff;--text:#14213d;--muted:#4a6fa1;--accent:#2563eb;--accent2:#22d3ee;--border:#dbe7ff;--danger:#ef4444;--shadow:0 10px 24px rgba(37,99,235,.12)}
-[data-theme="dark"]{--bg:#0f1220;--panel:#171a2b;--text:#e6e8f0;--muted:#a2a7bd;--accent:#6aa6ff;--accent2:#4de1c1;--border:#262a41;--danger:#ff6b6b;--shadow:0 10px 24px rgba(0,0,0,.35)}
+:root,[data-theme="pink"]{--bg:#fff9fb;--panel:#ffffff;--text:#3b2b35;--muted:#8f7181;--accent:#ff66a6;--accent2:#b86cff;--border:#f0d6e0;--danger:#ff5b7a;--shadow:0 10px 24px rgba(255,102,166,.15);--btn-bg1:#ffe8f2;--btn-bg2:#ffffff;--btn-danger-bg1:#ff8aa8;--btn-danger-bg2:#ff6b8a}
+[data-theme="light"]{--bg:#f7f8fa;--panel:#ffffff;--text:#1f2430;--muted:#5c6b80;--accent:#3b82f6;--accent2:#22c55e;--border:#e6e8ee;--danger:#ef4444;--shadow:0 10px 24px rgba(59,130,246,.12);--btn-bg1:#f5f7fb;--btn-bg2:#ffffff;--btn-danger-bg1:#ef4444;--btn-danger-bg2:#dc2626}
+[data-theme="blue"]{--bg:#f5f8ff;--panel:#ffffff;--text:#14213d;--muted:#4a6fa1;--accent:#2563eb;--accent2:#22d3ee;--border:#dbe7ff;--danger:#ef4444;--shadow:0 10px 24px rgba(37,99,235,.12);--btn-bg1:#eaf2ff;--btn-bg2:#ffffff;--btn-danger-bg1:#ef4444;--btn-danger-bg2:#dc2626}
+[data-theme="dark"]{--bg:#0f1220;--panel:#171a2b;--text:#e6e8f0;--muted:#a2a7bd;--accent:#6aa6ff;--accent2:#4de1c1;--border:#262a41;--danger:#ff6b6b;--shadow:0 10px 24px rgba(0,0,0,.35);--btn-bg1:#222742;--btn-bg2:#171a2b;--btn-danger-bg1:#ff6b6b;--btn-danger-bg2:#fe4f62}
 *{box-sizing:border-box}
 body{margin:0;background:
   radial-gradient(800px 400px at 10% -10%, #ffe3ef 0%, transparent 60%),
@@ -11,12 +11,12 @@ body{margin:0;background:
   font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial}
 .container{width:min(1100px,92vw);margin:24px auto}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.btn{background:linear-gradient(180deg,#ffe8f2,#fff);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:999px;cursor:pointer;box-shadow:var(--shadow)}
+.btn{background:linear-gradient(180deg,var(--btn-bg1),var(--btn-bg2));border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:999px;cursor:pointer;box-shadow:var(--shadow)}
 .btn:hover{border-color:var(--accent)}
-.danger{background:linear-gradient(180deg,#ff8aa8,#ff6b8a);color:#fff;border-color:transparent}
+.danger{background:linear-gradient(180deg,var(--btn-danger-bg1),var(--btn-danger-bg2));color:#fff;border-color:transparent}
 .tabs{display:flex;gap:8px;margin-top:12px}
 .tab{padding:8px 12px;border-radius:999px;border:1px solid var(--border);background:#fff;color:var(--muted);cursor:pointer}
-.tab.active{color:#fff;background:linear-gradient(180deg,#ff66a6,#b86cff);border-color:transparent}
+.tab.active{color:#fff;background:linear-gradient(180deg,var(--accent),var(--accent2));border-color:transparent}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:12px;box-shadow:var(--shadow)}
 .title{font-weight:800;color:var(--accent)}
@@ -29,7 +29,7 @@ body{margin:0;background:
 .modal-card{width:min(980px,96vw);background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:14px;box-shadow:var(--shadow)}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .list{display:grid;gap:8px}
-.attachment{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:center;background:#fff5f8;border:1px solid var(--border);border-radius:12px;padding:6px 8px}
+.attachment{display:grid;grid-template-columns:1fr auto auto;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:6px 8px}
 .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px}
 .thumb{aspect-ratio:1/1;border-radius:12px;overflow:hidden;border:1px solid var(--border);box-shadow:var(--shadow)}
 .thumb img{width:100%;height:100%;object-fit:cover}

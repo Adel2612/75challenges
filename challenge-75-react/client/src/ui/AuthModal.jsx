@@ -8,6 +8,8 @@ export default function AuthModal({ user, onAuthChange }) {
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [err, setErr] = useState('')
+  const [resetStep, setResetStep] = useState(1)
+  const [resetToken, setResetToken] = useState('')
 
   async function submit(e) {
     e.preventDefault()
@@ -52,22 +54,46 @@ export default function AuthModal({ user, onAuthChange }) {
             <div className="row" style={{marginTop:8}}>
               <button className="btn" style={{opacity: mode==='login'?1:0.6}} onClick={()=>setMode('login')}>Вход</button>
               <button className="btn" style={{opacity: mode==='register'?1:0.6}} onClick={()=>setMode('register')}>Регистрация</button>
+              <button className="btn" style={{opacity: mode==='reset'?1:0.6}} onClick={()=>{ setMode('reset'); setResetStep(1); setErr('') }}>Забыли пароль?</button>
             </div>
-            <form className="list" style={{marginTop:10}} onSubmit={submit}>
-              {mode==='register' && (
-                <input className="input" placeholder="Имя (опционально)" value={name} onChange={e=>setName(e.target.value)} />
-              )}
-              <input className="input" type="email" required placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} />
-              <input className="input" type="password" required placeholder="Пароль" value={password} onChange={e=>setPassword(e.target.value)} />
-              {err && <div className="muted">{err}</div>}
-              <div className="row" style={{justifyContent:'flex-end'}}>
-                <button className="btn" type="submit">{mode==='login'?'Войти':'Зарегистрироваться'}</button>
+            {mode!=='reset' ? (
+              <form className="list" style={{marginTop:10}} onSubmit={submit}>
+                {mode==='register' && (
+                  <input className="input" placeholder="Имя (опционально)" value={name} onChange={e=>setName(e.target.value)} />
+                )}
+                <input className="input" type="email" required placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} />
+                <input className="input" type="password" required placeholder="Пароль" value={password} onChange={e=>setPassword(e.target.value)} />
+                {err && <div className="muted">{err}</div>}
+                <div className="row" style={{justifyContent:'flex-end'}}>
+                  <button className="btn" type="submit">{mode==='login'?'Войти':'Зарегистрироваться'}</button>
+                </div>
+              </form>
+            ) : (
+              <div className="list" style={{marginTop:10}}>
+                {resetStep===1 && (
+                  <div className="list">
+                    <input className="input" type="email" required placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} />
+                    <div className="row" style={{justifyContent:'flex-end'}}>
+                      <button className="btn" onClick={async()=>{ try { const r = await api.auth.forgot(email); if (r?.token) setResetToken(r.token); setResetStep(2) } catch { setErr('Не удалось отправить код') } }}>Отправить код</button>
+                    </div>
+                  </div>
+                )}
+                {resetStep===2 && (
+                  <div className="list">
+                    <input className="input" placeholder="Код" value={resetToken} onChange={e=>setResetToken(e.target.value)} />
+                    <input className="input" type="password" placeholder="Новый пароль" value={password} onChange={e=>setPassword(e.target.value)} />
+                    <div className="row" style={{justifyContent:'flex-end'}}>
+                      <button className="btn" onClick={async()=>{ try { await api.auth.reset(resetToken, password); const me=await api.auth.me(); onAuthChange?.(me.user||null); setOpen(false); setPassword('') } catch { setErr('Не удалось сменить пароль') } }}>Сменить пароль</button>
+                    </div>
+                    {process.env.NODE_ENV !== 'production' && resetToken && (<div className="muted">Код: {resetToken}</div>)}
+                  </div>
+                )}
+                {err && <div className="muted">{err}</div>}
               </div>
-            </form>
+            )}
           </div>
         </div>
       )}
     </div>
   )
 }
-

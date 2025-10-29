@@ -79,12 +79,55 @@ app.put('/api/user/theme', requireAuth, async (req, res) => {
   res.json({ ok: true })
 })
 
+// Forgot/reset password
+app.post('/api/auth/forgot', async (req, res) => {
+  const email = String(req.body?.email || '').toLowerCase()
+  const user = await get(`SELECT id FROM users WHERE email = ?`, [email])
+  if (user) {
+    const token = crypto.randomUUID()
+    const now = new Date()
+    const expires = new Date(now.getTime() + 60*60*1000) // 1 hour
+    await run(`INSERT INTO password_resets(token, user_id, created_at, expires_at, used) VALUES(?,?,?,?,0)`, [
+      token, user.id, now.toISOString(), expires.toISOString()
+    ])
+    console.log('Password reset token for', email, token)
+    // In dev we return the token to simplify testing
+    if (process.env.NODE_ENV !== 'production') {
+      return res.json({ ok: true, token })
+    }
+  }
+  res.json({ ok: true })
+})
+
+app.post('/api/auth/reset', async (req, res) => {
+  const { token, password } = req.body || {}
+  if (!token || !password) return res.status(400).json({ error: 'bad_payload' })
+  const row = await get(`SELECT token, user_id, expires_at, used FROM password_resets WHERE token = ?`, [token])
+  if (!row || row.used) return res.status(400).json({ error: 'invalid_or_used' })
+  if (new Date(row.expires_at).getTime() < Date.now()) return res.status(400).json({ error: 'expired' })
+  const hash = await hashPassword(password)
+  await run(`UPDATE users SET password = ? WHERE id = ?`, [hash, row.user_id])
+  await run(`UPDATE password_resets SET used = 1 WHERE token = ?`, [token])
+  const user = await get(`SELECT id, email, name, theme FROM users WHERE id = ?`, [row.user_id])
+  const jwt = signToken({ id: user.id, email: user.email })
+  setAuthCookie(res, jwt)
+  res.json({ ok: true, user })
+})
+
 // State
 app.get('/api/state', async (req, res) => {
   try {
     const state = await toState()
     if (req.user) {
       const uid = req.user.id
+      // Merge personal task types into state.taskTypes
+      const personalTypes = await all(`SELECT key, title, emoji, position FROM user_task_types WHERE user_id = ? ORDER BY position ASC`, [uid])
+      if (personalTypes.length) {
+        const existing = state.taskTypes || []
+        const merged = [...personalTypes]
+        for (const g of existing) if (!personalTypes.find(p => p.key === g.key)) merged.push(g)
+        state.taskTypes = merged
+      }
       const ut = await all(`SELECT day, key, done FROM user_tasks WHERE user_id = ?`, [uid])
       const ud = await all(`SELECT day, note, weight FROM user_days WHERE user_id = ?`, [uid])
       const ua = await all(`SELECT id, day, name, type, size FROM user_attachments WHERE user_id = ? ORDER BY created_at ASC`, [uid])
@@ -96,6 +139,8 @@ app.get('/api/state', async (req, res) => {
       for (const a of ua) { (perDayAtts[a.day] ||= []).push({ id: a.id, name: a.name, type: a.type, size: a.size }) }
       for (const d of state.days) {
         const m = perDayTasks[d.day] || {}
+        // ensure per-user task keys exist
+        for (const tt of (state.taskTypes||[])) if (!(tt.key in d.tasks)) d.tasks[tt.key] = false
         for (const k of Object.keys(d.tasks)) if (m[k] !== undefined) d.tasks[k] = m[k]
         const det = perDayDetails[d.day]; if (det) { d.note = det.note || ''; d.weight = det.weight ?? null }
         if (perDayAtts[d.day]) d.attachments = perDayAtts[d.day]
@@ -315,9 +360,13 @@ app.post('/api/import', async (req, res) => {
 })
 
 // Task types CRUD
-app.get('/api/tasks/types', async (_req, res) => {
-  const rows = await all(`SELECT key, title, emoji, position FROM task_types ORDER BY position ASC`)
-  res.json(rows)
+app.get('/api/tasks/types', async (req, res) => {
+  const globals = await all(`SELECT key, title, emoji, position FROM task_types ORDER BY position ASC`)
+  if (!req.user) return res.json(globals)
+  const personal = await all(`SELECT key, title, emoji, position FROM user_task_types WHERE user_id = ? ORDER BY position ASC`, [req.user.id])
+  const merged = [...personal]
+  for (const g of globals) if (!personal.find(p => p.key === g.key)) merged.push(g)
+  res.json(merged)
 })
 
 app.post('/api/tasks/types', async (req, res) => {
@@ -326,30 +375,52 @@ app.post('/api/tasks/types', async (req, res) => {
   // make key slug
   const base = (title || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'task'
   let candidate = base, i = 1
-  while (await get(`SELECT key FROM task_types WHERE key = ?`, [candidate])) candidate = `${base}-${i++}`
-  const posRow = await get(`SELECT COALESCE(MAX(position),0) as p FROM task_types`)
-  const position = (posRow?.p || 0) + 1
-  await run(`INSERT INTO task_types(key,title,emoji,position) VALUES(?,?,?,?)`, [candidate, title, emoji ?? null, position])
-  // seed for all days
-  for (let d = 1; d <= 75; d++) await run(`INSERT OR IGNORE INTO tasks(day,key,done) VALUES(?,?,0)`, [d, candidate])
-  res.json({ key: candidate, title, emoji: emoji ?? null, position })
+  if (req.user) {
+    while (await get(`SELECT key FROM user_task_types WHERE user_id = ? AND key = ?`, [req.user.id, candidate])) candidate = `${base}-${i++}`
+    const posRow = await get(`SELECT COALESCE(MAX(position),0) as p FROM user_task_types WHERE user_id = ?`, [req.user.id])
+    const position = (posRow?.p || 0) + 1
+    await run(`INSERT INTO user_task_types(user_id,key,title,emoji,position) VALUES(?,?,?,?,?)`, [req.user.id, candidate, title, emoji ?? null, position])
+    return res.json({ key: candidate, title, emoji: emoji ?? null, position })
+  } else {
+    while (await get(`SELECT key FROM task_types WHERE key = ?`, [candidate])) candidate = `${base}-${i++}`
+    const posRow = await get(`SELECT COALESCE(MAX(position),0) as p FROM task_types`)
+    const position = (posRow?.p || 0) + 1
+    await run(`INSERT INTO task_types(key,title,emoji,position) VALUES(?,?,?,?)`, [candidate, title, emoji ?? null, position])
+    // seed for all days
+    for (let d = 1; d <= 75; d++) await run(`INSERT OR IGNORE INTO tasks(day,key,done) VALUES(?,?,0)`, [d, candidate])
+    return res.json({ key: candidate, title, emoji: emoji ?? null, position })
+  }
 })
 
 app.put('/api/tasks/types/:key', async (req, res) => {
   const { key } = req.params
   const { title, emoji, position } = req.body || {}
-  const exists = await get(`SELECT key FROM task_types WHERE key = ?`, [key])
-  if (!exists) return res.status(404).json({ error: 'not_found' })
-  if (position !== undefined) await run(`UPDATE task_types SET position = ? WHERE key = ?`, [Number(position), key])
-  await run(`UPDATE task_types SET title = COALESCE(?, title), emoji = COALESCE(?, emoji) WHERE key = ?`, [title ?? null, emoji ?? null, key])
-  res.json({ ok: true })
+  if (req.user) {
+    const exists = await get(`SELECT key FROM user_task_types WHERE user_id = ? AND key = ?`, [req.user.id, key])
+    if (!exists) return res.status(404).json({ error: 'not_found' })
+    if (position !== undefined) await run(`UPDATE user_task_types SET position = ? WHERE user_id = ? AND key = ?`, [Number(position), req.user.id, key])
+    await run(`UPDATE user_task_types SET title = COALESCE(?, title), emoji = COALESCE(?, emoji) WHERE user_id = ? AND key = ?`, [title ?? null, emoji ?? null, req.user.id, key])
+    return res.json({ ok: true })
+  } else {
+    const exists = await get(`SELECT key FROM task_types WHERE key = ?`, [key])
+    if (!exists) return res.status(404).json({ error: 'not_found' })
+    if (position !== undefined) await run(`UPDATE task_types SET position = ? WHERE key = ?`, [Number(position), key])
+    await run(`UPDATE task_types SET title = COALESCE(?, title), emoji = COALESCE(?, emoji) WHERE key = ?`, [title ?? null, emoji ?? null, key])
+    return res.json({ ok: true })
+  }
 })
 
 app.delete('/api/tasks/types/:key', async (req, res) => {
   const { key } = req.params
-  await run(`DELETE FROM task_types WHERE key = ?`, [key])
-  await run(`DELETE FROM tasks WHERE key = ?`, [key])
-  res.json({ ok: true })
+  if (req.user) {
+    await run(`DELETE FROM user_task_types WHERE user_id = ? AND key = ?`, [req.user.id, key])
+    await run(`DELETE FROM user_tasks WHERE user_id = ? AND key = ?`, [req.user.id, key])
+    return res.json({ ok: true })
+  } else {
+    await run(`DELETE FROM task_types WHERE key = ?`, [key])
+    await run(`DELETE FROM tasks WHERE key = ?`, [key])
+    return res.json({ ok: true })
+  }
 })
 
 // ----------------- Ascetics (Аскеза) -----------------

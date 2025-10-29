@@ -60,7 +60,9 @@ export const api = {
     me: () => req('/api/auth/me'),
     register: (email, password, name) => req('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, name }) }),
     login: (email, password) => req('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }),
-    logout: () => req('/api/auth/logout', { method: 'POST' })
+    logout: () => req('/api/auth/logout', { method: 'POST' }),
+    forgot: (email) => req('/api/auth/forgot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }),
+    reset: (token, password) => req('/api/auth/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password }) })
   },
   user: {
     theme: (theme) => req('/api/user/theme', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme }) })

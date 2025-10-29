@@ -80,6 +80,13 @@ export async function ensureSchema() {
     path TEXT NOT NULL,
     created_at TEXT NOT NULL
   );`)
+  await run(`CREATE TABLE IF NOT EXISTS password_resets (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0
+  );`)
   await run(`CREATE TABLE IF NOT EXISTS ascetics (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -113,6 +120,15 @@ export async function ensureSchema() {
     done INTEGER NOT NULL DEFAULT 0,
     notes TEXT,
     created_at TEXT NOT NULL
+  );`)
+
+  await run(`CREATE TABLE IF NOT EXISTS user_task_types (
+    user_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    emoji TEXT,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (user_id, key)
   );`)
 
   // Per-user overlay tables
