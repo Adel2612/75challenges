@@ -7,6 +7,7 @@ import Reports from './Reports.jsx'
 import Settings from './Settings.jsx'
 import Ascetics from './Ascetics.jsx'
 import AuthModal from './AuthModal.jsx'
+import SharePublic from './SharePublic.jsx'
 
 const defaultKeys = ['wo1','wo2','diet','water','read','photo']
 
@@ -72,6 +73,12 @@ export default function App() {
   async function updateDetails(day, patch) {
     const s = await api.setDetails(day, patch)
     setState(s)
+  }
+
+  // Public share viewer route
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/share/')) {
+    const token = window.location.pathname.split('/').pop()
+    return <SharePublic token={token} />
   }
 
   if (loading) return <div className="container">Загрузка…</div>

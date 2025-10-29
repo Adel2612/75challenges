@@ -79,6 +79,108 @@ app.put('/api/user/theme', requireAuth, async (req, res) => {
   res.json({ ok: true })
 })
 
+// Create share link
+app.post('/api/share/create', requireAuth, async (req, res) => {
+  const include = req.body?.include_images ? 1 : 0
+  const days = Number(req.body?.days || 0)
+  const token = crypto.randomUUID()
+  const now = new Date()
+  const expires = days > 0 ? new Date(now.getTime() + days*24*60*60*1000) : null
+  await run(`INSERT INTO share_links(token, user_id, include_images, created_at, expires_at) VALUES(?,?,?,?,?)`, [
+    token, req.user.id, include, now.toISOString(), expires ? expires.toISOString() : null
+  ])
+  res.json({ token })
+})
+
+// Public share payload
+app.get('/api/share/:token', async (req, res) => {
+  const link = await get(`SELECT token, user_id, include_images, expires_at FROM share_links WHERE token = ?`, [req.params.token])
+  if (!link) return res.status(404).json({ error: 'not_found' })
+  if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) return res.status(410).json({ error: 'expired' })
+  const user = await get(`SELECT id, name, email, theme, avatar_path FROM users WHERE id = ?`, [link.user_id])
+  if (!user) return res.status(404).json({ error: 'user_not_found' })
+  // Build state for this user (read‑only)
+  const base = await toState()
+  const uid = user.id
+  const personalTypes = await all(`SELECT key, title, emoji, position FROM user_task_types WHERE user_id = ? ORDER BY position ASC`, [uid])
+  if (personalTypes.length) {
+    const merged = [...personalTypes]
+    for (const g of base.taskTypes||[]) if (!personalTypes.find(p => p.key === g.key)) merged.push(g)
+    base.taskTypes = merged
+  }
+  const ut = await all(`SELECT day, key, done FROM user_tasks WHERE user_id = ?`, [uid])
+  const ud = await all(`SELECT day, note, weight FROM user_days WHERE user_id = ?`, [uid])
+  const ua = link.include_images ? await all(`SELECT id, day, name, type, size FROM user_attachments WHERE user_id = ? ORDER BY created_at ASC`, [uid]) : []
+  const perDayTasks = {}; for (const r of ut) { perDayTasks[r.day] ||= {}; perDayTasks[r.day][r.key] = !!r.done }
+  const perDayDetails = Object.fromEntries(ud.map(r => [r.day, r]))
+  const perDayAtts = {}; for (const a of ua) { (perDayAtts[a.day] ||= []).push({ id: a.id, name: a.name, type: a.type, size: a.size }) }
+  for (const d of base.days) {
+    const m = perDayTasks[d.day] || {}
+    for (const tt of (base.taskTypes||[])) if (!(tt.key in d.tasks)) d.tasks[tt.key] = false
+    for (const k of Object.keys(d.tasks)) if (m[k] !== undefined) d.tasks[k] = m[k]
+    const det = perDayDetails[d.day]; if (det) { d.note = det.note || ''; d.weight = det.weight ?? null }
+    d.attachments = perDayAtts[d.day] || []
+  }
+  const goals = await all(`SELECT id, title, due, done, notes, created_at FROM user_goals WHERE user_id = ? ORDER BY created_at DESC`, [uid])
+  res.json({
+    user: { id: user.id, name: user.name || null, theme: user.theme || 'pink', avatar: user.avatar_path ? `/api/share/${req.params.token}/avatar` : null },
+    include_images: !!link.include_images,
+    days: base.days,
+    goals,
+    taskTypes: base.taskTypes
+  })
+})
+
+app.get('/api/share/:token/avatar', async (req, res) => {
+  const link = await get(`SELECT user_id, expires_at FROM share_links WHERE token = ?`, [req.params.token])
+  if (!link) return res.status(404).end()
+  if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) return res.status(410).end()
+  const row = await get(`SELECT avatar_path FROM users WHERE id = ?`, [link.user_id])
+  if (!row?.avatar_path || !fs.existsSync(row.avatar_path)) return res.status(404).end()
+  const type = 'image/' + (path.extname(row.avatar_path).slice(1) || 'jpeg')
+  res.setHeader('Content-Type', type)
+  fs.createReadStream(row.avatar_path).pipe(res)
+})
+
+app.get('/api/share/:token/attachment/:id', async (req, res) => {
+  const link = await get(`SELECT user_id, include_images, expires_at FROM share_links WHERE token = ?`, [req.params.token])
+  if (!link || !link.include_images) return res.status(404).end()
+  if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) return res.status(410).end()
+  const row = await get(`SELECT path, name, type FROM user_attachments WHERE id = ? AND user_id = ?`, [req.params.id, link.user_id])
+  if (!row || !fs.existsSync(row.path)) return res.status(404).end()
+  res.setHeader('Content-Type', row.type || 'application/octet-stream')
+  fs.createReadStream(row.path).pipe(res)
+})
+
+// Avatar upload and serve
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const base = path.join(UPLOADS_DIR, `u-${req.user.id}`, 'avatar')
+    if (!fs.existsSync(base)) fs.mkdirSync(base, { recursive: true })
+    cb(null, base)
+  },
+  filename: (_req, file, cb) => {
+    const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')
+    cb(null, Date.now() + '-' + safe)
+  }
+})
+const uploadAvatar = multer({ storage: avatarStorage })
+
+app.post('/api/user/avatar', requireAuth, uploadAvatar.single('file'), async (req, res) => {
+  const p = req.file?.path
+  if (!p) return res.status(400).json({ error: 'no_file' })
+  await run(`UPDATE users SET avatar_path = ? WHERE id = ?`, [p, req.user.id])
+  res.json({ ok: true })
+})
+
+app.get('/api/user/avatar/me', requireAuth, async (req, res) => {
+  const row = await get(`SELECT avatar_path FROM users WHERE id = ?`, [req.user.id])
+  if (!row?.avatar_path || !fs.existsSync(row.avatar_path)) return res.status(404).end()
+  const type = 'image/' + (path.extname(row.avatar_path).slice(1) || 'jpeg')
+  res.setHeader('Content-Type', type)
+  fs.createReadStream(row.avatar_path).pipe(res)
+})
+
 // Forgot/reset password
 app.post('/api/auth/forgot', async (req, res) => {
   const email = String(req.body?.email || '').toLowerCase()
@@ -115,38 +217,40 @@ app.post('/api/auth/reset', async (req, res) => {
 })
 
 // State
+async function buildStateForUser(userId) {
+  const state = await toState()
+  if (!userId) return state
+  // Merge personal task types
+  const personalTypes = await all(`SELECT key, title, emoji, position FROM user_task_types WHERE user_id = ? ORDER BY position ASC`, [userId])
+  if (personalTypes.length) {
+    const existing = state.taskTypes || []
+    const merged = [...personalTypes]
+    for (const g of existing) if (!personalTypes.find(p => p.key === g.key)) merged.push(g)
+    state.taskTypes = merged
+  }
+  const ut = await all(`SELECT day, key, done FROM user_tasks WHERE user_id = ?`, [userId])
+  const ud = await all(`SELECT day, note, weight FROM user_days WHERE user_id = ?`, [userId])
+  const ua = await all(`SELECT id, day, name, type, size FROM user_attachments WHERE user_id = ? ORDER BY created_at ASC`, [userId])
+  const g = await all(`SELECT id, title, due, done, notes, created_at FROM user_goals WHERE user_id = ? ORDER BY created_at DESC`, [userId])
+  const perDayTasks = {}
+  for (const r of ut) { perDayTasks[r.day] ||= {}; perDayTasks[r.day][r.key] = !!r.done }
+  const perDayDetails = Object.fromEntries(ud.map(r => [r.day, r]))
+  const perDayAtts = {}
+  for (const a of ua) { (perDayAtts[a.day] ||= []).push({ id: a.id, name: a.name, type: a.type, size: a.size }) }
+  for (const d of state.days) {
+    const m = perDayTasks[d.day] || {}
+    for (const tt of (state.taskTypes||[])) if (!(tt.key in d.tasks)) d.tasks[tt.key] = false
+    for (const k of Object.keys(d.tasks)) if (m[k] !== undefined) d.tasks[k] = m[k]
+    const det = perDayDetails[d.day]; if (det) { d.note = det.note || ''; d.weight = det.weight ?? null }
+    if (perDayAtts[d.day]) d.attachments = perDayAtts[d.day]
+  }
+  state.goals = g
+  return state
+}
+
 app.get('/api/state', async (req, res) => {
   try {
-    const state = await toState()
-    if (req.user) {
-      const uid = req.user.id
-      // Merge personal task types into state.taskTypes
-      const personalTypes = await all(`SELECT key, title, emoji, position FROM user_task_types WHERE user_id = ? ORDER BY position ASC`, [uid])
-      if (personalTypes.length) {
-        const existing = state.taskTypes || []
-        const merged = [...personalTypes]
-        for (const g of existing) if (!personalTypes.find(p => p.key === g.key)) merged.push(g)
-        state.taskTypes = merged
-      }
-      const ut = await all(`SELECT day, key, done FROM user_tasks WHERE user_id = ?`, [uid])
-      const ud = await all(`SELECT day, note, weight FROM user_days WHERE user_id = ?`, [uid])
-      const ua = await all(`SELECT id, day, name, type, size FROM user_attachments WHERE user_id = ? ORDER BY created_at ASC`, [uid])
-      const g = await all(`SELECT id, title, due, done, notes, created_at FROM user_goals WHERE user_id = ? ORDER BY created_at DESC`, [uid])
-      const perDayTasks = {}
-      for (const r of ut) { perDayTasks[r.day] ||= {}; perDayTasks[r.day][r.key] = !!r.done }
-      const perDayDetails = Object.fromEntries(ud.map(r => [r.day, r]))
-      const perDayAtts = {}
-      for (const a of ua) { (perDayAtts[a.day] ||= []).push({ id: a.id, name: a.name, type: a.type, size: a.size }) }
-      for (const d of state.days) {
-        const m = perDayTasks[d.day] || {}
-        // ensure per-user task keys exist
-        for (const tt of (state.taskTypes||[])) if (!(tt.key in d.tasks)) d.tasks[tt.key] = false
-        for (const k of Object.keys(d.tasks)) if (m[k] !== undefined) d.tasks[k] = m[k]
-        const det = perDayDetails[d.day]; if (det) { d.note = det.note || ''; d.weight = det.weight ?? null }
-        if (perDayAtts[d.day]) d.attachments = perDayAtts[d.day]
-      }
-      state.goals = g
-    }
+    const state = await buildStateForUser(req.user?.id)
     res.json(state)
   } catch (e) {
     console.error(e)
@@ -167,7 +271,7 @@ app.put('/api/day/:day/tasks', async (req, res) => {
     } else {
       await upsertDay(day, tasks, null)
     }
-    const state = await toState()
+    const state = await buildStateForUser(req.user?.id)
     res.json(state)
   } catch (e) {
     console.error(e)
@@ -192,7 +296,7 @@ app.put('/api/day/:day/details', async (req, res) => {
     } else {
       await upsertDay(day, null, { note, weight })
     }
-    const state = await toState()
+    const state = await buildStateForUser(req.user?.id)
     res.json(state)
   } catch (e) {
     console.error(e)

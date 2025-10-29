@@ -37,3 +37,7 @@ body{margin:0;background:
 /* keep action buttons on their own line */
 .card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 @media(max-width:860px){.split{grid-template-columns:1fr}}
+@media(max-width:520px){
+  .grid{grid-template-columns:1fr}
+  .tasks{grid-template-columns:1fr}
+}

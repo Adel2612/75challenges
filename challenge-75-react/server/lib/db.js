@@ -54,6 +54,7 @@ export async function ensureSchema() {
     theme TEXT DEFAULT 'pink',
     created_at TEXT NOT NULL
   );`)
+  try { await run(`ALTER TABLE users ADD COLUMN avatar_path TEXT`) } catch (e) {}
   await run(`CREATE TABLE IF NOT EXISTS task_types (
     key TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -165,6 +166,13 @@ export async function ensureSchema() {
     path TEXT NOT NULL,
     created_at TEXT NOT NULL
   );`)
+  await run(`CREATE TABLE IF NOT EXISTS share_links (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    include_images INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    expires_at TEXT
+  );`)
 
   // Seed tasks rows for 75 days x 6 keys if missing
   const defaultTypes = [
@@ -230,8 +238,7 @@ export async function resetAll() {
   await run(`DELETE FROM tasks`)
   await run(`DELETE FROM days`)
   await run(`DELETE FROM goals`)
-  await run(`DELETE FROM attachments`)
-  // Keep files on disk but orphaned; optionally clean uploads dir here.
+  // Do NOT delete attachments to prevent image loss.
   await ensureSchema()
 }
 
