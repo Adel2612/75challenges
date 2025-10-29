@@ -7,7 +7,9 @@ import morgan from 'morgan'
 import multer from 'multer'
 import { fileURLToPath } from 'url'
 import { db, ensureSchema, toState, upsertDay, resetAll, importState, UPLOADS_DIR, all, run, get } from './lib/db.js'
-import { withCookies, authOptional, requireAuth, hashPassword, verifyPassword, signToken, setAuthCookie, clearAuthCookie } from './lib/auth.js'
+import { withCookies, authOptional, requireAuth, hashPassword, verifyPassword, signToken, setAuthCookie, clearAuthCookie, decodeToken } from './lib/auth.js'
+import http from 'http'
+import { WebSocketServer } from 'ws'
 
 const PORT = process.env.PORT || 4000
 const app = express()
@@ -167,6 +169,73 @@ app.get('/api/inbox', requireAuth, async (req, res) => {
 
 app.post('/api/inbox/:id/read', requireAuth, async (req, res) => {
   await run(`UPDATE inbox SET read = 1 WHERE id = ? AND to_user_id = ?`, [req.params.id, req.user.id])
+  res.json({ ok: true })
+})
+
+// User avatar by id (for friends lists)
+app.get('/api/user/:id/avatar', requireAuth, async (req, res) => {
+  const row = await get(`SELECT avatar_path FROM users WHERE id = ?`, [req.params.id])
+  if (!row?.avatar_path || !fs.existsSync(row.avatar_path)) return res.status(404).end()
+  const type = 'image/' + (path.extname(row.avatar_path).slice(1) || 'jpeg')
+  res.setHeader('Content-Type', type)
+  fs.createReadStream(row.avatar_path).pipe(res)
+})
+
+// Plain message send (inbox)
+app.post('/api/messages/send', requireAuth, async (req, res) => {
+  const { to_user_id, message } = req.body || {}
+  if (!to_user_id || !message) return res.status(400).json({ error: 'bad_payload' })
+  const id = crypto.randomUUID()
+  const payload = JSON.stringify({ message })
+  await run(`INSERT INTO inbox(id, to_user_id, from_user_id, type, payload, created_at, read) VALUES(?,?,?,?,?, ?, 0)`, [
+    id, to_user_id, req.user.id, 'message', payload, new Date().toISOString()
+  ])
+  res.json({ ok: true })
+})
+
+// Friends system
+app.get('/api/friends', requireAuth, async (req, res) => {
+  const uid = req.user.id
+  const a = await all(`SELECT f.id, u.id as user_id, u.email, u.name FROM friends f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ? AND f.status = 'accepted'`, [uid])
+  const b = await all(`SELECT f.id, u.id as user_id, u.email, u.name FROM friends f JOIN users u ON u.id = f.user_id WHERE f.friend_id = ? AND f.status = 'accepted'`, [uid])
+  res.json([...a, ...b])
+})
+
+app.get('/api/friends/requests', requireAuth, async (req, res) => {
+  const incoming = await all(`SELECT f.id, f.user_id as from_user_id, u.email, u.name, f.created_at FROM friends f JOIN users u ON u.id = f.user_id WHERE f.friend_id = ? AND f.status = 'pending' ORDER BY f.created_at DESC`, [req.user.id])
+  const outgoing = await all(`SELECT f.id, f.friend_id as to_user_id, u.email, u.name, f.created_at FROM friends f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ? AND f.status = 'pending' ORDER BY f.created_at DESC`, [req.user.id])
+  res.json({ incoming, outgoing })
+})
+
+app.post('/api/friends/request', requireAuth, async (req, res) => {
+  const to = String(req.body?.to_user_id || '')
+  if (!to || to === req.user.id) return res.status(400).json({ error: 'bad_payload' })
+  // If there's a reverse pending, accept it
+  const reverse = await get(`SELECT id FROM friends WHERE user_id = ? AND friend_id = ? AND status = 'pending'`, [to, req.user.id])
+  const now = new Date().toISOString()
+  if (reverse) {
+    await run(`UPDATE friends SET status = 'accepted', updated_at = ? WHERE id = ?`, [now, reverse.id])
+    return res.json({ ok: true, accepted: true })
+  }
+  // Avoid duplicates
+  const exists = await get(`SELECT id FROM friends WHERE user_id = ? AND friend_id = ?`, [req.user.id, to])
+  if (exists) return res.json({ ok: true })
+  const id = crypto.randomUUID()
+  await run(`INSERT INTO friends(id, user_id, friend_id, status, created_at, updated_at) VALUES(?,?,?,?,?,?)`, [id, req.user.id, to, 'pending', now, now])
+  res.json({ ok: true })
+})
+
+app.post('/api/friends/:id/accept', requireAuth, async (req, res) => {
+  const row = await get(`SELECT id FROM friends WHERE id = ? AND friend_id = ? AND status = 'pending'`, [req.params.id, req.user.id])
+  if (!row) return res.status(404).json({ error: 'not_found' })
+  await run(`UPDATE friends SET status = 'accepted', updated_at = ? WHERE id = ?`, [new Date().toISOString(), req.params.id])
+  res.json({ ok: true })
+})
+
+app.delete('/api/friends/:id', requireAuth, async (req, res) => {
+  const row = await get(`SELECT id FROM friends WHERE id = ? AND (user_id = ? OR friend_id = ?)`, [req.params.id, req.user.id, req.user.id])
+  if (!row) return res.status(404).json({ error: 'not_found' })
+  await run(`DELETE FROM friends WHERE id = ?`, [req.params.id])
   res.json({ ok: true })
 })
 
@@ -680,6 +749,158 @@ app.delete('/api/ascetics/attachments/:attId', async (req, res) => {
   res.json({ ok: true })
 })
 
+// ---- Users search and inbox (in‑app sharing) ----
+app.get('/api/users/search', requireAuth, async (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase()
+  if (!q) return res.json([])
+  const rows = await all(`SELECT id, email, name FROM users WHERE lower(email) LIKE ? OR lower(name) LIKE ? LIMIT 20`, [`%${q}%`, `%${q}%`])
+  res.json(rows.filter(u => u.id !== req.user.id))
+})
+
+app.get('/api/inbox', requireAuth, async (req, res) => {
+  const rows = await all(`SELECT id, from_user_id, type, payload, created_at, read FROM inbox WHERE to_user_id = ? ORDER BY created_at DESC LIMIT 100`, [req.user.id])
+  res.json(rows)
+})
+
+app.post('/api/inbox/:id/read', requireAuth, async (req, res) => {
+  await run(`UPDATE inbox SET read = 1 WHERE id = ? AND to_user_id = ?`, [req.params.id, req.user.id])
+  res.json({ ok: true })
+})
+
+app.post('/api/share/send', requireAuth, async (req, res) => {
+  const { to_user_id, token, message } = req.body || {}
+  if (!to_user_id || !token) return res.status(400).json({ error: 'bad_payload' })
+  const link = await get(`SELECT token FROM share_links WHERE token = ? AND user_id = ?`, [token, req.user.id])
+  if (!link) return res.status(404).json({ error: 'share_not_found' })
+  const id = crypto.randomUUID()
+  const payload = JSON.stringify({ token, message: message || '' })
+  await run(`INSERT INTO inbox(id, to_user_id, from_user_id, type, payload, created_at, read) VALUES(?,?,?,?,?, ?, 0)`, [
+    id, to_user_id, req.user.id, 'share', payload, new Date().toISOString()
+  ])
+  res.json({ ok: true })
+})
+
+// Plain message send (inbox)
+app.post('/api/messages/send', requireAuth, async (req, res) => {
+  const { to_user_id, message } = req.body || {}
+  if (!to_user_id || !message) return res.status(400).json({ error: 'bad_payload' })
+  const id = crypto.randomUUID()
+  const payload = JSON.stringify({ message })
+  await run(`INSERT INTO inbox(id, to_user_id, from_user_id, type, payload, created_at, read) VALUES(?,?,?,?,?, ?, 0)`, [
+    id, to_user_id, req.user.id, 'message', payload, new Date().toISOString()
+  ])
+  res.json({ ok: true })
+})
+
+// User avatar by id (for friends lists)
+app.get('/api/user/:id/avatar', requireAuth, async (req, res) => {
+  const row = await get(`SELECT avatar_path FROM users WHERE id = ?`, [req.params.id])
+  if (!row?.avatar_path || !fs.existsSync(row.avatar_path)) return res.status(404).end()
+  const type = 'image/' + (path.extname(row.avatar_path).slice(1) || 'jpeg')
+  res.setHeader('Content-Type', type)
+  fs.createReadStream(row.avatar_path).pipe(res)
+})
+
+// Friends system
+app.get('/api/friends', requireAuth, async (req, res) => {
+  const uid = req.user.id
+  const a = await all(`SELECT f.id, u.id as user_id, u.email, u.name FROM friends f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ? AND f.status = 'accepted'`, [uid])
+  const b = await all(`SELECT f.id, u.id as user_id, u.email, u.name FROM friends f JOIN users u ON u.id = f.user_id WHERE f.friend_id = ? AND f.status = 'accepted'`, [uid])
+  res.json([...a, ...b])
+})
+
+app.get('/api/friends/requests', requireAuth, async (req, res) => {
+  const incoming = await all(`SELECT f.id, f.user_id as from_user_id, u.email, u.name, f.created_at FROM friends f JOIN users u ON u.id = f.user_id WHERE f.friend_id = ? AND f.status = 'pending' ORDER BY f.created_at DESC`, [req.user.id])
+  const outgoing = await all(`SELECT f.id, f.friend_id as to_user_id, u.email, u.name, f.created_at FROM friends f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ? AND f.status = 'pending' ORDER BY f.created_at DESC`, [req.user.id])
+  res.json({ incoming, outgoing })
+})
+
+app.post('/api/friends/request', requireAuth, async (req, res) => {
+  const to = String(req.body?.to_user_id || '')
+  if (!to || to === req.user.id) return res.status(400).json({ error: 'bad_payload' })
+  const reverse = await get(`SELECT id FROM friends WHERE user_id = ? AND friend_id = ? AND status = 'pending'`, [to, req.user.id])
+  const now = new Date().toISOString()
+  if (reverse) {
+    await run(`UPDATE friends SET status = 'accepted', updated_at = ? WHERE id = ?`, [now, reverse.id])
+    return res.json({ ok: true, accepted: true })
+  }
+  const exists = await get(`SELECT id FROM friends WHERE user_id = ? AND friend_id = ?`, [req.user.id, to])
+  if (exists) return res.json({ ok: true })
+  const id = crypto.randomUUID()
+  await run(`INSERT INTO friends(id, user_id, friend_id, status, created_at, updated_at) VALUES(?,?,?,?,?,?)`, [id, req.user.id, to, 'pending', now, now])
+  res.json({ ok: true })
+})
+
+app.post('/api/friends/:id/accept', requireAuth, async (req, res) => {
+  const row = await get(`SELECT id FROM friends WHERE id = ? AND friend_id = ? AND status = 'pending'`, [req.params.id, req.user.id])
+  if (!row) return res.status(404).json({ error: 'not_found' })
+  await run(`UPDATE friends SET status = 'accepted', updated_at = ? WHERE id = ?`, [new Date().toISOString(), req.params.id])
+  res.json({ ok: true })
+})
+
+app.delete('/api/friends/:id', requireAuth, async (req, res) => {
+  const row = await get(`SELECT id FROM friends WHERE id = ? AND (user_id = ? OR friend_id = ?)`, [req.params.id, req.user.id, req.user.id])
+  if (!row) return res.status(404).json({ error: 'not_found' })
+  await run(`DELETE FROM friends WHERE id = ?`, [req.params.id])
+  res.json({ ok: true })
+})
+
+// Online presence (shared with WebSocket section below)
+// Defined near server creation; here we only use it
+app.get('/api/friends/online', requireAuth, async (req, res) => {
+  res.json(Array.from(online.keys()))
+})
+
+// Chat endpoints
+function chatKey(a,b){ return [String(a), String(b)].sort().join('|') }
+app.get('/api/chat/unread', requireAuth, async (req, res) => {
+  const rows = await all(`SELECT from_user_id as user_id, COUNT(*) as cnt FROM chat_messages WHERE to_user_id = ? AND read_at IS NULL GROUP BY from_user_id`, [req.user.id])
+  res.json(rows)
+})
+app.get('/api/chat/:peerId', requireAuth, async (req, res) => {
+  const peer = String(req.params.peerId)
+  const k = chatKey(req.user.id, peer)
+  const after = req.query.after ? new Date(String(req.query.after)) : null
+  const lim = Math.min(Number(req.query.limit || 50), 200)
+  const rows = await all(`SELECT id, from_user_id, to_user_id, text, reply_to, created_at, read_at FROM chat_messages WHERE chat_key = ? ${after? 'AND created_at > ?' : ''} ORDER BY created_at ASC LIMIT ?`, after ? [k, after.toISOString(), lim] : [k, lim])
+  res.json(rows)
+})
+app.post('/api/chat/:peerId/send', requireAuth, async (req, res) => {
+  const peer = String(req.params.peerId)
+  const text = String(req.body?.text || '').trim()
+  const reply_to = req.body?.reply_to || null
+  if (!text) return res.status(400).json({ error: 'empty' })
+  const id = crypto.randomUUID()
+  const created = new Date().toISOString()
+  const k = chatKey(req.user.id, peer)
+  await run(`INSERT INTO chat_messages(id, chat_key, from_user_id, to_user_id, text, reply_to, created_at) VALUES(?,?,?,?,?,?,?)`, [id, k, req.user.id, peer, text, reply_to, created])
+  // Push via WS if online
+  const set = online.get(peer)
+  if (set) {
+    const payload = JSON.stringify({ type:'chat', from: req.user.id, to: peer, id, text, reply_to, created_at: created })
+    for (const s of set) { try { s.send(payload) } catch {} }
+  }
+  res.json({ id, created_at: created })
+})
+app.post('/api/chat/:peerId/read', requireAuth, async (req, res) => {
+  const peer = String(req.params.peerId)
+  const upto = req.body?.upto
+  const now = new Date().toISOString()
+  if (!upto) return res.status(400).json({ error: 'bad_payload' })
+  if (/^[0-9a-fA-F-]{36}$/.test(upto)) {
+    const row = await get(`SELECT created_at FROM chat_messages WHERE id = ? AND to_user_id = ?`, [upto, req.user.id])
+    if (row) await run(`UPDATE chat_messages SET read_at = ? WHERE to_user_id = ? AND from_user_id = ? AND created_at <= ? AND read_at IS NULL`, [now, req.user.id, peer, row.created_at])
+  } else {
+    await run(`UPDATE chat_messages SET read_at = ? WHERE to_user_id = ? AND from_user_id = ? AND created_at <= ? AND read_at IS NULL`, [now, req.user.id, peer, String(upto)])
+  }
+  const set = online.get(peer)
+  if (set) {
+    const payload = JSON.stringify({ type:'read', from: req.user.id, to: peer, upto })
+    for (const s of set) { try { s.send(payload) } catch {} }
+  }
+  res.json({ ok: true })
+})
+
 // SPA fallback (only when static is enabled)
 if (fs.existsSync(CLIENT_DIST) && fs.existsSync(path.join(CLIENT_DIST, 'index.html'))) {
   app.get('*', (req, res, next) => {
@@ -688,8 +909,27 @@ if (fs.existsSync(CLIENT_DIST) && fs.existsSync(path.join(CLIENT_DIST, 'index.ht
   })
 }
 
+// Upgrade to HTTP server with WebSocket support
+const server = http.createServer(app)
+const wss = new WebSocketServer({ server, path: '/ws' })
+const online = new Map()
+function addClient(userId, ws){ let s=online.get(userId); if(!s){ s=new Set(); online.set(userId,s)} s.add(ws) }
+function removeClient(userId, ws){ const s=online.get(userId); if(!s) return; s.delete(ws); if(!s.size) online.delete(userId) }
+
+wss.on('connection', (ws, req) => {
+  const cookie = req.headers['cookie'] || ''
+  const m = cookie.match(/auth=([^;]+)/)
+  const token = m ? decodeURIComponent(m[1]) : null
+  const payload = token ? decodeToken(token) : null
+  const uid = payload?.uid
+  if (!uid) return ws.close()
+  ws.userId = String(uid)
+  addClient(ws.userId, ws)
+  ws.on('close', () => removeClient(ws.userId, ws))
+})
+
 ensureSchema().then(() => {
-  app.listen(PORT, () => console.log(`API on http://localhost:${PORT}`))
+  server.listen(PORT, () => console.log(`API on http://localhost:${PORT}`))
 }).catch(err => {
   console.error('DB init failed', err)
   process.exit(1)

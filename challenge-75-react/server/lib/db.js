@@ -182,6 +182,26 @@ export async function ensureSchema() {
     created_at TEXT NOT NULL,
     read INTEGER NOT NULL DEFAULT 0
   );`)
+  await run(`CREATE TABLE IF NOT EXISTS friends (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    friend_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, friend_id)
+  );`)
+  await run(`CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    chat_key TEXT NOT NULL,
+    from_user_id TEXT NOT NULL,
+    to_user_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    reply_to TEXT,
+    created_at TEXT NOT NULL,
+    read_at TEXT
+  );`)
+  await run(`CREATE INDEX IF NOT EXISTS chat_key_idx ON chat_messages(chat_key, created_at)`)
 
   // Seed tasks rows for 75 days x 6 keys if missing
   const defaultTypes = [
