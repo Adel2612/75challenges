@@ -2,8 +2,9 @@ import fs from 'fs'
 import path from 'path'
 import sqlite3 from 'sqlite3'
 
-const DATA_DIR = path.join(process.cwd(), 'data')
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
+const BASE_DIR = process.env.STORAGE_DIR || process.cwd()
+const DATA_DIR = path.join(BASE_DIR, 'data')
+const UPLOADS_DIR = path.join(BASE_DIR, 'uploads')
 const DB_FILE = path.join(DATA_DIR, 'challenge75.sqlite')
 
 function ensureDir(p) {
@@ -45,6 +46,14 @@ export function get(sql, params = []) {
 
 export async function ensureSchema() {
   await run(`PRAGMA journal_mode = WAL;`)
+  await run(`CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    name TEXT,
+    theme TEXT DEFAULT 'pink',
+    created_at TEXT NOT NULL
+  );`)
   await run(`CREATE TABLE IF NOT EXISTS task_types (
     key TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -96,12 +105,48 @@ export async function ensureSchema() {
     path TEXT NOT NULL,
     created_at TEXT NOT NULL
   );`)
+  try { await run(`ALTER TABLE ascetics ADD COLUMN user_id TEXT`) } catch (e) {}
   await run(`CREATE TABLE IF NOT EXISTS goals (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     due TEXT,
     done INTEGER NOT NULL DEFAULT 0,
     notes TEXT,
+    created_at TEXT NOT NULL
+  );`)
+
+  // Per-user overlay tables
+  await run(`CREATE TABLE IF NOT EXISTS user_tasks (
+    user_id TEXT NOT NULL,
+    day INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day, key)
+  );`)
+  await run(`CREATE TABLE IF NOT EXISTS user_days (
+    user_id TEXT NOT NULL,
+    day INTEGER NOT NULL,
+    note TEXT,
+    weight REAL,
+    PRIMARY KEY (user_id, day)
+  );`)
+  await run(`CREATE TABLE IF NOT EXISTS user_goals (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    due TEXT,
+    done INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at TEXT NOT NULL
+  );`)
+  await run(`CREATE TABLE IF NOT EXISTS user_attachments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    day INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT,
+    size INTEGER,
+    path TEXT NOT NULL,
     created_at TEXT NOT NULL
   );`)
 

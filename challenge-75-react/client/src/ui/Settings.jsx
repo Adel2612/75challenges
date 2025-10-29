@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
+import ThemePicker from './ThemePicker.jsx'
 
 export default function Settings({ onChanged, state }) {
   const [types, setTypes] = useState(state.taskTypes||[])
   const [title, setTitle] = useState('')
   const [emoji, setEmoji] = useState('')
-
+  const [theme, setTheme] = useState('pink')
+  
   useEffect(()=>{ setTypes(state.taskTypes||[]) }, [state.taskTypes])
+  useEffect(()=>{ setTheme(document.documentElement.getAttribute('data-theme')||'pink') }, [])
 
   return (
     <div className="card">
@@ -34,7 +37,10 @@ export default function Settings({ onChanged, state }) {
           </div>
         ))}
       </div>
+
+      <div className="title" style={{marginTop:16}}>Тема</div>
+      <div className="muted" style={{marginTop:6}}>Выберите тему интерфейса. Если вы вошли в аккаунт, тема сохранится в профиле.</div>
+      <ThemePicker value={theme} onChange={async t=>{ setTheme(t); document.documentElement.setAttribute('data-theme', t); try { await api.user.theme(t) } catch {} }} />
     </div>
   )
 }
-

@@ -6,6 +6,7 @@ import Goals from './Goals.jsx'
 import Reports from './Reports.jsx'
 import Settings from './Settings.jsx'
 import Ascetics from './Ascetics.jsx'
+import AuthBar from './AuthBar.jsx'
 
 const defaultKeys = ['wo1','wo2','diet','water','read','photo']
 
@@ -15,6 +16,10 @@ export default function App() {
   const [error, setError] = useState('')
   const [details, setDetails] = useState(null)
   const [tab, setTab] = useState('progress')
+  const [user, setUser] = useState(null)
+  const [theme, setTheme] = useState('pink')
+
+  function applyTheme(t){ document.documentElement.setAttribute('data-theme', t); setTheme(t) }
 
   async function load() {
     try {
@@ -30,6 +35,9 @@ export default function App() {
   }
 
   useEffect(() => { load() }, [])
+  useEffect(() => { if (user!==undefined) load() }, [user])
+
+  useEffect(()=>{ document.documentElement.setAttribute('data-theme', theme) }, [theme])
 
   const stats = useMemo(() => {
     if (!state) return null
@@ -70,6 +78,7 @@ export default function App() {
     <div className="container">
       <header>
         <h1>Челлендж 75 Сложных Дней</h1>
+        <AuthBar onAuthChange={setUser} onTheme={applyTheme} />
         {stats && (
           <div className="muted" style={{marginTop:8}}>
             Прогресс: {stats.percent}% | Задач: {stats.tasksDone}/{stats.tasksTotal} | Дней закрыто: {stats.fullDays}/75

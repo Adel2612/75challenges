@@ -26,6 +26,8 @@ export default function DayCard({ day, taskTypes, onToggle, onToggleAll, onOpenD
             <span>{t.emoji ? `${t.emoji} ` : ''}{t.title || t.key}</span>
           </label>
         ))}
+      </div>
+      <div className="card-actions">
         <button className="btn" onClick={onToggleAll}>Переключить все</button>
         <button className="btn" onClick={onOpenDetails}>Детали</button>
         <label className="btn">

@@ -1,7 +1,8 @@
-const API = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+// Use explicit API url only if provided; otherwise use same-origin relative paths
+const API = (import.meta.env && import.meta.env.VITE_API_URL && String(import.meta.env.VITE_API_URL).trim()) || ''
 
-async function req(path, opts) {
-  const r = await fetch(API + path, opts)
+async function req(path, opts={}) {
+  const r = await fetch(API + path, { credentials: 'include', ...opts })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const ct = r.headers.get('content-type') || ''
   if (ct.includes('application/json')) return r.json()
@@ -54,5 +55,14 @@ export const api = {
       downloadUrl: (attId) => `${API}/api/ascetics/attachments/${attId}/download`,
     }
   },
-  reset: () => req('/api/reset', { method: 'POST' })
+  reset: () => req('/api/reset', { method: 'POST' }),
+  auth: {
+    me: () => req('/api/auth/me'),
+    register: (email, password, name) => req('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, name }) }),
+    login: (email, password) => req('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }),
+    logout: () => req('/api/auth/logout', { method: 'POST' })
+  },
+  user: {
+    theme: (theme) => req('/api/user/theme', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ theme }) })
+  }
 }
