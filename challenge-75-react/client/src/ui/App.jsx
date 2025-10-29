@@ -6,7 +6,7 @@ import Goals from './Goals.jsx'
 import Reports from './Reports.jsx'
 import Settings from './Settings.jsx'
 import Ascetics from './Ascetics.jsx'
-import AuthBar from './AuthBar.jsx'
+import AuthModal from './AuthModal.jsx'
 
 const defaultKeys = ['wo1','wo2','diet','water','read','photo']
 
@@ -35,7 +35,10 @@ export default function App() {
   }
 
   useEffect(() => { load() }, [])
-  useEffect(() => { if (user!==undefined) load() }, [user])
+  // Load current user once and apply theme
+  useEffect(() => { (async()=>{ try { const r = await api.auth.me(); setUser(r.user||null); if (r.user?.theme) applyTheme(r.user.theme) } catch {} })() }, [])
+  // Reload state when user identity changes (login/logout)
+  useEffect(() => { const id = user?.id || ''; load() }, [user?.id])
 
   useEffect(()=>{ document.documentElement.setAttribute('data-theme', theme) }, [theme])
 
@@ -78,7 +81,7 @@ export default function App() {
     <div className="container">
       <header>
         <h1>Челлендж 75 Сложных Дней</h1>
-        <AuthBar onAuthChange={setUser} onTheme={applyTheme} />
+        <AuthModal user={user} onAuthChange={(u)=>{ setUser(u); if (u?.theme) applyTheme(u.theme) }} />
         {stats && (
           <div className="muted" style={{marginTop:8}}>
             Прогресс: {stats.percent}% | Задач: {stats.tasksDone}/{stats.tasksTotal} | Дней закрыто: {stats.fullDays}/75
