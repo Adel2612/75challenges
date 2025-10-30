@@ -11,6 +11,13 @@ export default function AuthModal({ user, onAuthChange }) {
   const [resetStep, setResetStep] = useState(1)
   const [resetToken, setResetToken] = useState('')
 
+  // lock body scroll while modal is open
+  React.useEffect(()=>{
+    if (open) document.body.classList.add('modal-open')
+    else document.body.classList.remove('modal-open')
+    return () => document.body.classList.remove('modal-open')
+  }, [open])
+
   async function submit(e) {
     e.preventDefault()
     setErr('')

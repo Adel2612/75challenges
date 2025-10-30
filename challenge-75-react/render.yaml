@@ -3,7 +3,6 @@ services:
     name: challenge-75
     env: node
     rootDir: challenge-75-react/server
-    buildCommand: |
-      cd ../client && npm install && npm run build && cd ../server && npm install
+    buildCommand: cd ../client && npm install && npm run build && cd ../server && npm install --build-from-source && npm rebuild sqlite3 --build-from-source
     startCommand: node index.js
     plan: free
