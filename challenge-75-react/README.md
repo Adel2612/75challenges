@@ -39,7 +39,7 @@ Deploy options
   - Подключите репозиторий в Render → New Web Service.
   - Root directory: `challenge-75-react/server`
   - Build command:
-    `cd ../client && npm ci && npm run build && cd ../server && npm ci`
+    `cd ../client && npm ci && npm run build && cd ../server && npm install`
   - Start command: `node index.js`
   - После деплоя Render даст HTTPS‑домен. Клиент собран и отдается сервером автоматически.
 

@@ -4,7 +4,6 @@ services:
     env: node
     rootDir: challenge-75-react/server
     buildCommand: |
-      cd ../client && npm ci && npm run build && cd ../server && npm ci
+      cd ../client && npm ci && npm run build && cd ../server && npm install
     startCommand: node index.js
     plan: free
-

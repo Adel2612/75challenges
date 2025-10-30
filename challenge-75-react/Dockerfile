@@ -11,9 +11,8 @@ FROM node:18-alpine AS server
 ENV NODE_ENV=production
 WORKDIR /app/server
 COPY server/package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 COPY server ./
 COPY --from=client-builder /app/client/dist ../client/dist
 EXPOSE 4000
 CMD ["node", "index.js"]
-
