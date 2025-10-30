@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
+import Spinner from './Spinner.jsx'
 
 export default function DetailsModal({ day, onClose, onSave }) {
   const [note, setNote] = useState(day.note || '')
@@ -45,9 +46,9 @@ export default function DetailsModal({ day, onClose, onSave }) {
               }} />
               <label htmlFor="upfile" className="btn">Прикрепить</label>
             </div>
-            {loading ? <div className="muted">Загрузка…</div> : (
+            {loading ? <div className="row" style={{gap:8,alignItems:'center'}}><Spinner/><div className="muted">Загружаем вложения…</div></div> : (
               <div className="list">
-                {attachments.length === 0 && <div className="muted">Пока пусто</div>}
+                {attachments.length === 0 && <div className="empty">Пока нет вложений</div>}
                 <div className="thumbs">
                   {attachments.filter(a => (a.type||'').startsWith('image/')).map(a => (
                     <a className="thumb" key={a.id} href={api.attachments.viewUrl(a.id)} target="_blank" rel="noreferrer">

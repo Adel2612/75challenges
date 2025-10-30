@@ -16,6 +16,9 @@ export default function Reports({ state }) {
 
   return (
     <div className="list">
+      {state.days?.length===0 && (
+        <div className="empty">Пока нет данных для отчётов</div>
+      )}
       {ranges.map(([a,b]) => {
         const days = state.days.filter(d => d.day >= a && d.day <= b)
         const tasksTotal = days.length * (keys.length||1)

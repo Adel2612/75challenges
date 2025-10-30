@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { API_BASE } from '../api'
+import Spinner from './Spinner.jsx'
 
 export default function Friends() {
   const [q, setQ] = useState('')
@@ -20,9 +21,13 @@ export default function Friends() {
     const r = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`, { credentials: 'include' })
     if (r.ok) setResults(await r.json())
   }
+  const [loadingInbox, setLoadingInbox] = useState(true)
+  const [loadingFriends, setLoadingFriends] = useState(true)
   async function loadInbox() {
+    setLoadingInbox(true)
     const r = await fetch('/api/inbox', { credentials: 'include' })
     if (r.ok) setInbox(await r.json())
+    setLoadingInbox(false)
   }
   async function loadFriends(){ const r = await fetch('/api/friends',{credentials:'include'}); if(r.ok) setFriends(await r.json()) }
   async function loadRequests(){ const r = await fetch('/api/friends/requests',{credentials:'include'}); if(r.ok) setRequests(await r.json()) }
@@ -81,9 +86,15 @@ export default function Friends() {
         {results.length>0 && (
           <div className="list">
             {results.map(u => (
-              <div className="row" key={u.id} style={{justifyContent:'space-between'}}>
-                <div className="muted">{u.name || u.email}</div>
-                <button className="btn" onClick={()=>send(u)}>Отправить</button>
+              <div className="row" key={u.id} style={{justifyContent:'space-between', alignItems:'center'}}>
+                <div className="row" style={{gap:8, alignItems:'center'}}>
+                  <img src={`${API_BASE}/api/user/${u.id}/avatar`} alt="ava" style={{width:28,height:28,borderRadius:'50%',objectFit:'cover',border:'1px solid var(--border)'}} onError={(e)=>{e.currentTarget.style.display='none'}} />
+                  <div className="muted">{u.name || u.email}</div>
+                </div>
+                <div className="row">
+                  <button className="btn" onClick={()=>addFriend(u)}>Добавить</button>
+                  <button className="btn" onClick={()=>send(u)}>Поделиться</button>
+                </div>
               </div>
             ))}
           </div>
@@ -92,7 +103,8 @@ export default function Friends() {
 
       <div className="title" style={{marginTop:16}}>Ваши друзья</div>
       <div className="list" style={{marginTop:8}}>
-        {friends.length===0 && <div className="muted">Пока нет друзей</div>}
+        {loadingFriends && <div className="row" style={{gap:8,alignItems:'center'}}><Spinner/><div className="muted">Загружаем друзей…</div></div>}
+        {!loadingFriends && friends.length===0 && <div className="empty">Пока нет друзей. Найдите по email/имени и добавьте!</div>}
         {friends.map(f => (
           <div className="row" key={f.user_id} style={{justifyContent:'space-between', alignItems:'center'}}>
             <div className="row" style={{gap:8, alignItems:'center'}}>
@@ -152,7 +164,8 @@ export default function Friends() {
 
       <div className="title" style={{marginTop:16}}>Входящие</div>
       <div className="list" style={{marginTop:8}}>
-        {inbox.length===0 && <div className="muted">Пока пусто</div>}
+        {loadingInbox && <div className="row" style={{gap:8,alignItems:'center'}}><Spinner/><div className="muted">Проверяем входящие…</div></div>}
+        {!loadingInbox && inbox.length===0 && <div className="empty">Входящих пока нет</div>}
         {inbox.map(item => {
           let payload = {}
           try { payload = JSON.parse(item.payload||'{}') } catch {}

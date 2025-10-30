@@ -11,8 +11,33 @@ function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true })
 }
 
+function copyDir(src, dest) {
+  if (!fs.existsSync(src)) return
+  ensureDir(dest)
+  for (const entry of fs.readdirSync(src)) {
+    const s = path.join(src, entry)
+    const d = path.join(dest, entry)
+    const stat = fs.statSync(s)
+    if (stat.isDirectory()) copyDir(s, d)
+    else if (!fs.existsSync(d)) fs.copyFileSync(s, d)
+  }
+}
+
 ensureDir(DATA_DIR)
 ensureDir(UPLOADS_DIR)
+
+// One-time migration: if STORAGE_DIR is set and storage is empty, copy existing data/uploads
+try {
+  if (process.env.STORAGE_DIR) {
+    const oldData = path.join(process.cwd(), 'data')
+    const oldUploads = path.join(process.cwd(), 'uploads')
+    const hasNewDb = fs.existsSync(path.join(DATA_DIR, 'challenge75.sqlite'))
+    const hasOldDb = fs.existsSync(path.join(oldData, 'challenge75.sqlite'))
+    if (!hasNewDb && hasOldDb) copyDir(oldData, DATA_DIR)
+    const newUploadsEmpty = !fs.existsSync(UPLOADS_DIR) || fs.readdirSync(UPLOADS_DIR).length === 0
+    if (newUploadsEmpty && fs.existsSync(oldUploads)) copyDir(oldUploads, UPLOADS_DIR)
+  }
+} catch {}
 
 sqlite3.verbose()
 export const db = new sqlite3.Database(DB_FILE)

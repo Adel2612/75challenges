@@ -9,6 +9,7 @@ import Ascetics from './Ascetics.jsx'
 import AuthModal from './AuthModal.jsx'
 import SharePublic from './SharePublic.jsx'
 import Friends from './Friends.jsx'
+import Spinner from './Spinner.jsx'
 
 const defaultKeys = ['wo1','wo2','diet','water','read','photo']
 
@@ -96,8 +97,8 @@ export default function App() {
     return <SharePublic token={token} />
   }
 
-  if (loading) return <div className="container">Загрузка…</div>
-  if (error) return <div className="container">{error}</div>
+  if (loading) return <div className="container" style={{display:'grid', placeItems:'center', minHeight:'40vh'}}><Spinner size={42}/><div className="muted" style={{marginTop:8}}>Загружаем ваш прогресс…</div></div>
+  if (error) return <div className="container"><div className="empty">{error}</div></div>
 
   return (
     <div className="container">

@@ -1,4 +1,5 @@
 import React from 'react'
+import { Icon } from './Icons.jsx'
 
 const FALLBACK = [
   { key:'wo1', title:'Тренировка 1' },
@@ -28,10 +29,10 @@ export default function DayCard({ day, taskTypes, onToggle, onToggleAll, onOpenD
         ))}
       </div>
       <div className="card-actions">
-        <button className="btn" onClick={onToggleAll}>Переключить все</button>
-        <button className="btn" onClick={onOpenDetails}>Детали</button>
+        <button className="btn" onClick={onToggleAll}><Icon.Check style={{marginRight:6}}/>Переключить все</button>
+        <button className="btn" onClick={onOpenDetails}><Icon.Settings style={{marginRight:6}}/>Детали</button>
         <label className="btn">
-          Фото
+          <Icon.Photo style={{marginRight:6}}/>Фото
           <input type="file" accept="image/*" style={{display:'none'}} onChange={onQuickPhoto} />
         </label>
       </div>
