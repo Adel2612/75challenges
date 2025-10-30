@@ -61,9 +61,9 @@ export default function Reports({ state }) {
             </div>
             {imgs.length>0 && (
               <div className="thumbs" style={{marginTop:10}}>
-                {imgs.map(img => (
+                  {imgs.map(img => (
                   <a key={img.id} className="thumb" href={api.attachments.viewUrl(img.id)} target="_blank" rel="noreferrer">
-                    <img src={api.attachments.viewUrl(img.id)} alt={img.name} />
+                    <img src={api.attachments.viewUrl(img.id)} alt="" />
                   </a>
                 ))}
               </div>

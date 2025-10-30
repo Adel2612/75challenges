@@ -14,6 +14,7 @@ export default function Friends() {
   const [active, setActive] = useState(null)
   const [chat, setChat] = useState([])
   const [chatText, setChatText] = useState('')
+  const [chatFiles, setChatFiles] = useState([])
   const [me, setMe] = useState(null)
 
   async function search() {
@@ -56,7 +57,7 @@ export default function Friends() {
 
   // Chat
   async function openChat(f){ setActive(f); const r = await fetch(`/api/chat/${f.user_id}`,{credentials:'include'}); if(r.ok){ const msgs = await r.json(); setChat(msgs); if(msgs.length){ await fetch(`/api/chat/${f.user_id}/read`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({upto: msgs[msgs.length-1].id})}) } } }
-  async function sendChat(){ if(!active || !chatText.trim()) return; const body = { text: chatText.trim() }; const r = await fetch(`/api/chat/${active.user_id}/send`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); if(r.ok){ setChatText(''); const rr = await fetch(`/api/chat/${active.user_id}?after=${encodeURIComponent(chat.length?chat[chat.length-1].created_at:'')}`,{credentials:'include'}); if(rr.ok){ const more = await rr.json(); setChat(c=>[...c, ...more]) } } }
+  async function sendChat(){ if(!active) return; if(chatFiles.length>0){ const fd = new FormData(); for(const f of chatFiles) fd.append('files', f); fd.append('text', chatText); const r = await fetch(`/api/chat/${active.user_id}/send-with-attachments`,{method:'POST',credentials:'include',body:fd}); if(r.ok){ setChatText(''); setChatFiles([]); const rr = await fetch(`/api/chat/${active.user_id}?after=${encodeURIComponent(chat.length?chat[chat.length-1].created_at:'')}`,{credentials:'include'}); if(rr.ok){ const more = await rr.json(); setChat(c=>[...c, ...more]) } } } else { if(!chatText.trim()) return; const body = { text: chatText.trim() }; const r = await fetch(`/api/chat/${active.user_id}/send`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); if(r.ok){ setChatText(''); const rr = await fetch(`/api/chat/${active.user_id}?after=${encodeURIComponent(chat.length?chat[chat.length-1].created_at:'')}`,{credentials:'include'}); if(rr.ok){ const more = await rr.json(); setChat(c=>[...c, ...more]) } } } }
 
   useEffect(()=>{
     // WebSocket for realtime
@@ -137,9 +138,17 @@ export default function Friends() {
             ))}
           </div>
           <div className="row" style={{marginTop:8}}>
+            <label className="btn">Прикрепить
+              <input type="file" accept="image/*,audio/*" multiple hidden onChange={e=>{ setChatFiles(Array.from(e.target.files||[])); }} />
+            </label>
             <input className="input" placeholder="Напишите сообщение" value={chatText} onChange={e=>setChatText(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); sendChat() } }} />
             <button className="btn" onClick={sendChat}>Отправить</button>
           </div>
+          {chatFiles.length>0 && (
+            <div className="list" style={{marginTop:6}}>
+              <div className="muted">Вложения к отправке: {chatFiles.map(f=>f.name).join(', ')}</div>
+            </div>
+          )}
         </div>
       )}
 

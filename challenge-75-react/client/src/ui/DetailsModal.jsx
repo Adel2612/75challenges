@@ -7,6 +7,8 @@ export default function DetailsModal({ day, onClose, onSave }) {
   const [weight, setWeight] = useState(day.weight ?? '')
   const [attachments, setAttachments] = useState([])
   const [loading, setLoading] = useState(true)
+  const [custom, setCustom] = useState([])
+  const [newTask, setNewTask] = useState('')
 
   async function loadAttachments() {
     setLoading(true)
@@ -18,7 +20,14 @@ export default function DetailsModal({ day, onClose, onSave }) {
     }
   }
 
-  useEffect(() => { loadAttachments() }, [day.day])
+  async function loadCustom() {
+    try {
+      const r = await fetch(`/api/day/${day.day}/custom-tasks`, { credentials:'include' })
+      if (r.ok) setCustom(await r.json())
+    } catch {}
+  }
+
+  useEffect(() => { loadAttachments(); loadCustom() }, [day.day])
 
   return (
     <div className="modal">
@@ -33,6 +42,24 @@ export default function DetailsModal({ day, onClose, onSave }) {
             <textarea className="input" rows={6} value={note} onChange={e=>setNote(e.target.value)} />
             <label className="muted">Вес (кг)</label>
             <input className="input" type="number" step="0.1" value={weight} onChange={e=>setWeight(e.target.value)} />
+
+            <label className="muted" style={{marginTop:8}}>Задачи этого дня</label>
+            <div className="list">
+              {custom.length===0 && <div className="empty">Добавьте первую задачу дня</div>}
+              {custom.map(ct => (
+                <div key={ct.id} className="row" style={{justifyContent:'space-between'}}>
+                  <label className="row" style={{gap:8}}>
+                    <input type="checkbox" checked={!!ct.done} onChange={async e=>{ await fetch(`/api/day/${day.day}/custom-tasks/${ct.id}`,{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({done:e.target.checked})}); await loadCustom() }} />
+                    <input className="input" value={ct.title} onChange={async e=>{ await fetch(`/api/day/${day.day}/custom-tasks/${ct.id}`,{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:e.target.value})}); }} />
+                  </label>
+                  <button className="btn danger" onClick={async()=>{ await fetch(`/api/day/${day.day}/custom-tasks/${ct.id}`,{method:'DELETE',credentials:'include'}); await loadCustom() }}>Удалить</button>
+                </div>
+              ))}
+              <div className="row">
+                <input className="input" placeholder="Новая задача" value={newTask} onChange={e=>setNewTask(e.target.value)} />
+                <button className="btn" onClick={async()=>{ if(!newTask.trim()) return; await fetch(`/api/day/${day.day}/custom-tasks`,{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:newTask.trim()})}); setNewTask(''); await loadCustom() }}>Добавить</button>
+              </div>
+            </div>
           </div>
           <div className="list">
             <div className="row" style={{justifyContent:'space-between'}}>

@@ -228,6 +228,35 @@ export async function ensureSchema() {
   );`)
   await run(`CREATE INDEX IF NOT EXISTS chat_key_idx ON chat_messages(chat_key, created_at)`)
 
+  // Per-day custom tasks (per user)
+  await run(`CREATE TABLE IF NOT EXISTS user_day_custom_tasks (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    day INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0,
+    position INTEGER,
+    created_at TEXT NOT NULL
+  );`)
+  await run(`CREATE INDEX IF NOT EXISTS idx_udct_user_day ON user_day_custom_tasks(user_id, day)`)
+
+  // Chat attachments
+  await run(`CREATE TABLE IF NOT EXISTS chat_attachments (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT,
+    size INTEGER,
+    from_user_id TEXT NOT NULL,
+    to_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );`)
+  await run(`CREATE TABLE IF NOT EXISTS chat_message_attachments (
+    message_id TEXT NOT NULL,
+    attachment_id TEXT NOT NULL,
+    PRIMARY KEY (message_id, attachment_id)
+  );`)
+
   // Seed tasks rows for 75 days x 6 keys if missing
   const defaultTypes = [
     { key:'wo1', title:'Тренировка 1', emoji:'💪', position:1 },

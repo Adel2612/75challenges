@@ -331,18 +331,22 @@ async function buildStateForUser(userId) {
   const ut = await all(`SELECT day, key, done FROM user_tasks WHERE user_id = ?`, [userId])
   const ud = await all(`SELECT day, note, weight FROM user_days WHERE user_id = ?`, [userId])
   const ua = await all(`SELECT id, day, name, type, size FROM user_attachments WHERE user_id = ? ORDER BY created_at ASC`, [userId])
+  const uct = await all(`SELECT id, day, title, done, position, created_at FROM user_day_custom_tasks WHERE user_id = ? ORDER BY COALESCE(position, 999999), created_at ASC`, [userId])
   const g = await all(`SELECT id, title, due, done, notes, created_at FROM user_goals WHERE user_id = ? ORDER BY created_at DESC`, [userId])
   const perDayTasks = {}
   for (const r of ut) { perDayTasks[r.day] ||= {}; perDayTasks[r.day][r.key] = !!r.done }
   const perDayDetails = Object.fromEntries(ud.map(r => [r.day, r]))
   const perDayAtts = {}
   for (const a of ua) { (perDayAtts[a.day] ||= []).push({ id: a.id, name: a.name, type: a.type, size: a.size }) }
+  const perDayCustom = {}
+  for (const c of uct) { (perDayCustom[c.day] ||= []).push({ id: c.id, title: c.title, done: !!c.done, position: c.position, created_at: c.created_at }) }
   for (const d of state.days) {
     const m = perDayTasks[d.day] || {}
     for (const tt of (state.taskTypes||[])) if (!(tt.key in d.tasks)) d.tasks[tt.key] = false
     for (const k of Object.keys(d.tasks)) if (m[k] !== undefined) d.tasks[k] = m[k]
     const det = perDayDetails[d.day]; if (det) { d.note = det.note || ''; d.weight = det.weight ?? null }
     if (perDayAtts[d.day]) d.attachments = perDayAtts[d.day]
+    d.customTasks = perDayCustom[d.day] || []
   }
   state.goals = g
   return state
@@ -402,6 +406,44 @@ app.put('/api/day/:day/details', async (req, res) => {
     console.error(e)
     res.status(500).json({ error: 'failed_to_update' })
   }
+})
+
+// ----- Per-day custom tasks (per user) -----
+app.get('/api/day/:day/custom-tasks', requireAuth, async (req, res) => {
+  const day = Number(req.params.day)
+  const rows = await all(`SELECT id, title, done, position, created_at FROM user_day_custom_tasks WHERE user_id = ? AND day = ? ORDER BY COALESCE(position, 999999), created_at ASC`, [req.user.id, day])
+  res.json(rows)
+})
+
+app.post('/api/day/:day/custom-tasks', requireAuth, async (req, res) => {
+  const day = Number(req.params.day)
+  const title = String(req.body?.title || '').trim()
+  if (!title) return res.status(400).json({ error: 'title_required' })
+  const id = crypto.randomUUID()
+  const posRow = await get(`SELECT COALESCE(MAX(position),0) as p FROM user_day_custom_tasks WHERE user_id = ? AND day = ?`, [req.user.id, day])
+  const position = (posRow?.p || 0) + 1
+  const created = new Date().toISOString()
+  await run(`INSERT INTO user_day_custom_tasks(id, user_id, day, title, done, position, created_at) VALUES(?,?,?,?,?,?,?)`, [id, req.user.id, day, title, 0, position, created])
+  res.json({ id, title, done: 0, position, created_at: created })
+})
+
+app.put('/api/day/:day/custom-tasks/:id', requireAuth, async (req, res) => {
+  const day = Number(req.params.day)
+  const { id } = req.params
+  const { title, done, position } = req.body || {}
+  await run(`UPDATE user_day_custom_tasks SET title = COALESCE(?, title), done = COALESCE(?, done), position = COALESCE(?, position) WHERE id = ? AND user_id = ? AND day = ?`, [
+    title ?? null,
+    typeof done === 'boolean' ? (done ? 1 : 0) : null,
+    position ?? null,
+    id, req.user.id, day
+  ])
+  res.json({ ok: true })
+})
+
+app.delete('/api/day/:day/custom-tasks/:id', requireAuth, async (req, res) => {
+  const day = Number(req.params.day)
+  await run(`DELETE FROM user_day_custom_tasks WHERE id = ? AND user_id = ? AND day = ?`, [req.params.id, req.user.id, day])
+  res.json({ ok: true })
 })
 
 // Goals
@@ -863,6 +905,11 @@ app.get('/api/chat/:peerId', requireAuth, async (req, res) => {
   const after = req.query.after ? new Date(String(req.query.after)) : null
   const lim = Math.min(Number(req.query.limit || 50), 200)
   const rows = await all(`SELECT id, from_user_id, to_user_id, text, reply_to, created_at, read_at FROM chat_messages WHERE chat_key = ? ${after? 'AND created_at > ?' : ''} ORDER BY created_at ASC LIMIT ?`, after ? [k, after.toISOString(), lim] : [k, lim])
+  // hydrate attachments
+  for (const m of rows) {
+    const atts = await all(`SELECT a.id, a.name, a.type, a.size FROM chat_message_attachments ma JOIN chat_attachments a ON a.id = ma.attachment_id WHERE ma.message_id = ?`, [m.id])
+    if (atts.length) m.attachments = atts
+  }
   res.json(rows)
 })
 app.post('/api/chat/:peerId/send', requireAuth, async (req, res) => {
@@ -899,6 +946,51 @@ app.post('/api/chat/:peerId/read', requireAuth, async (req, res) => {
     for (const s of set) { try { s.send(payload) } catch {} }
   }
   res.json({ ok: true })
+})
+
+// Upload chat attachments alongside a message
+const chatStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const base = path.join(UPLOADS_DIR, `u-${req.user.id}`, 'chat')
+    if (!fs.existsSync(base)) fs.mkdirSync(base, { recursive: true })
+    cb(null, base)
+  },
+  filename: (_req, file, cb) => {
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9)
+    const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')
+    cb(null, unique + '-' + safe)
+  }
+})
+const chatUpload = multer({ storage: chatStorage })
+
+app.post('/api/chat/:peerId/send-with-attachments', requireAuth, chatUpload.array('files'), async (req, res) => {
+  const peer = String(req.params.peerId)
+  const text = String(req.body?.text || '')
+  if (!text && (!req.files || req.files.length===0)) return res.status(400).json({ error: 'empty' })
+  const id = crypto.randomUUID()
+  const created = new Date().toISOString()
+  const k = chatKey(req.user.id, peer)
+  await run(`INSERT INTO chat_messages(id, chat_key, from_user_id, to_user_id, text, created_at) VALUES(?,?,?,?,?,?)`, [id, k, req.user.id, peer, text, created])
+  for (const f of (req.files||[])) {
+    const aid = crypto.randomUUID()
+    await run(`INSERT INTO chat_attachments(id, path, name, type, size, from_user_id, to_user_id, created_at) VALUES(?,?,?,?,?,?,?,?)`, [
+      aid, f.path, f.originalname, f.mimetype, f.size, req.user.id, peer, created
+    ])
+    await run(`INSERT INTO chat_message_attachments(message_id, attachment_id) VALUES(?,?)`, [id, aid])
+  }
+  const set = online.get(peer)
+  if (set) {
+    const payload = JSON.stringify({ type:'chat', from: req.user.id, to: peer, id, text, created_at: created, has_attachments: (req.files||[]).length>0 })
+    for (const s of set) { try { s.send(payload) } catch {} }
+  }
+  res.json({ id, created_at: created })
+})
+
+app.get('/api/chat/attachments/:id/view', requireAuth, async (req, res) => {
+  const row = await get(`SELECT path, name, type FROM chat_attachments WHERE id = ?`, [req.params.id])
+  if (!row || !fs.existsSync(row.path)) return res.status(404).end()
+  res.setHeader('Content-Type', row.type || 'application/octet-stream')
+  fs.createReadStream(row.path).pipe(res)
 })
 
 // SPA fallback (only when static is enabled)
